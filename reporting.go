@@ -43,6 +43,17 @@ func (i *Internal) deploymentList(namespace string, customLabels map[string]stri
 	return depList, nil
 }
 
+func (i *Internal) podList(namespace string, customLabels map[string]string) (*corev1.PodList, error) {
+	listOptions := getListOptions(customLabels)
+
+	podList, err := i.clientset.CoreV1().Pods(namespace).List(listOptions)
+	if err != nil {
+		return nil, err
+	}
+
+	return podList, nil
+}
+
 func (i *Internal) configmapsList(namespace string, customLabels map[string]string) (*corev1.ConfigMapList, error) {
 	listOptions := getListOptions(customLabels)
 
@@ -90,13 +101,13 @@ func filterMap(values url.Values) map[string]string {
 type MetaInfo struct {
 	Name              string `json:"name"`
 	Namespace         string `json:"namespace"`
-	AnalysisName      string `json:"analysis_name"`
-	AppName           string `json:"app_name"`
-	AppID             string `json:"app_id"`
-	ExternalID        string `json:"external_id"`
-	UserID            string `json:"user_id"`
+	AnalysisName      string `json:"analysisName"`
+	AppName           string `json:"appName"`
+	AppID             string `json:"appID"`
+	ExternalID        string `json:"externalID"`
+	UserID            string `json:"userID"`
 	Username          string `json:"username"`
-	CreationTimestamp string `json:"creation_timestamp"`
+	CreationTimestamp string `json:"creationTimestamp"`
 }
 
 // DeploymentInfo contains information returned about a Deployment.
@@ -129,6 +140,7 @@ func deploymentInfo(deployment *v1.Deployment) *DeploymentInfo {
 			user = *container.SecurityContext.RunAsUser
 			group = *container.SecurityContext.RunAsGroup
 		}
+
 	}
 
 	return &DeploymentInfo{
@@ -149,6 +161,39 @@ func deploymentInfo(deployment *v1.Deployment) *DeploymentInfo {
 		Port:    port,
 		User:    user,
 		Group:   group,
+	}
+}
+
+// PodInfo tracks information about the pods for a VICE analysis.
+type PodInfo struct {
+	MetaInfo
+	Phase                 string                   `json:"phase"`
+	Message               string                   `json:"message"`
+	Reason                string                   `json:"reason"`
+	ContainerStatuses     []corev1.ContainerStatus `json:"containerStatuses"`
+	InitContainerStatuses []corev1.ContainerStatus `json:"initContainerStatuses"`
+}
+
+func podInfo(pod *corev1.Pod) *PodInfo {
+	labels := pod.GetObjectMeta().GetLabels()
+
+	return &PodInfo{
+		MetaInfo: MetaInfo{
+			Name:              pod.GetName(),
+			Namespace:         pod.GetNamespace(),
+			AnalysisName:      labels["analysis-name"],
+			AppName:           labels["app-name"],
+			AppID:             labels["app-id"],
+			ExternalID:        labels["external-id"],
+			UserID:            labels["user-id"],
+			Username:          labels["username"],
+			CreationTimestamp: pod.GetCreationTimestamp().String(),
+		},
+		Phase:                 string(pod.Status.Phase),
+		Message:               pod.Status.Message,
+		Reason:                pod.Status.Reason,
+		ContainerStatuses:     pod.Status.ContainerStatuses,
+		InitContainerStatuses: pod.Status.InitContainerStatuses,
 	}
 }
 
@@ -180,9 +225,9 @@ func configMapInfo(cm *corev1.ConfigMap) *ConfigMapInfo {
 // ServiceInfoPort contains information about a service's Port.
 type ServiceInfoPort struct {
 	Name           string `json:"name"`
-	NodePort       int32  `json:"node_port"`
-	TargetPort     int32  `json:"target_port"`
-	TargetPortName string `json:"target_port_name"`
+	NodePort       int32  `json:"nodePort"`
+	TargetPort     int32  `json:"targetPort"`
+	TargetPortName string `json:"targetPortName"`
 	Port           int32  `json:"port"`
 	Protocol       string `json:"protocol"`
 }
@@ -230,7 +275,7 @@ func serviceInfo(svc *corev1.Service) *ServiceInfo {
 // IngressInfo contains useful Ingress VICE info.
 type IngressInfo struct {
 	MetaInfo
-	DefaultBackend string                `json:"default_backend"`
+	DefaultBackend string                `json:"defaultBackend"`
 	Rules          []extv1b1.IngressRule `json:"rules"`
 }
 
@@ -288,6 +333,46 @@ func (i *Internal) FilterableDeployments(writer http.ResponseWriter, request *ht
 
 	buf, err := json.Marshal(map[string][]DeploymentInfo{
 		"deployments": deployments,
+	})
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	writer.Header().Add("Content-Type", "application/json")
+	fmt.Fprintf(writer, string(buf))
+}
+
+func (i *Internal) getFilteredPods(filter map[string]string) ([]PodInfo, error) {
+	podList, err := i.podList(i.ViceNamespace, filter)
+	if err != nil {
+		return nil, err
+	}
+
+	pods := []PodInfo{}
+
+	for _, pod := range podList.Items {
+		info := podInfo(&pod)
+		pods = append(pods, *info)
+	}
+
+	return pods, nil
+}
+
+// FilterablePods returns a listing of the pods in a VICE analysis.
+func (i *Internal) FilterablePods(writer http.ResponseWriter, request *http.Request) {
+	defer request.Body.Close()
+
+	filter := filterMap(request.URL.Query())
+
+	pods, err := i.getFilteredPods(filter)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	buf, err := json.Marshal(map[string][]PodInfo{
+		"pods": pods,
 	})
 	if err != nil {
 		http.Error(writer, err.Error(), http.StatusInternalServerError)
