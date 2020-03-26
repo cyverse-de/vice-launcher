@@ -507,7 +507,8 @@ func (i *Internal) FilterableIngresses(writer http.ResponseWriter, request *http
 // that we know of and care about.
 type ResourceInfo struct {
 	Deployments []DeploymentInfo `json:"deployments"`
-	ConfigMaps  []ConfigMapInfo  `json:"config_maps"`
+	Pods        []PodInfo        `json:"pods"`
+	ConfigMaps  []ConfigMapInfo  `json:"configMaps"`
 	Services    []ServiceInfo    `json:"services"`
 	Ingresses   []IngressInfo    `json:"ingresses"`
 }
@@ -519,6 +520,12 @@ func (i *Internal) FilterableResources(writer http.ResponseWriter, request *http
 	filter := filterMap(request.URL.Query())
 
 	deployments, err := i.getFilteredDeployments(filter)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	pods, err := i.getFilteredPods(filter)
 	if err != nil {
 		http.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
@@ -544,6 +551,7 @@ func (i *Internal) FilterableResources(writer http.ResponseWriter, request *http
 
 	buf, err := json.Marshal(ResourceInfo{
 		Deployments: deployments,
+		Pods:        pods,
 		ConfigMaps:  cms,
 		Services:    svcs,
 		Ingresses:   ingresses,
