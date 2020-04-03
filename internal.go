@@ -219,64 +219,6 @@ func (i *Internal) UpsertDeployment(job *model.Job) error {
 	return nil
 }
 
-func (i *Internal) countJobsForUser(username string) (int, error) {
-	set := labels.Set(map[string]string{
-		"username": username,
-	})
-
-	listoptions := metav1.ListOptions{
-		LabelSelector: set.AsSelector().String(),
-	}
-
-	depclient := i.clientset.AppsV1().Deployments(i.ViceNamespace)
-	deplist, err := depclient.List(listoptions)
-	if err != nil {
-		return 0, err
-	}
-
-	return len(deplist.Items), nil
-}
-
-const getJobLimitForUserSQL = `
-	SELECT concurrent_jobs FROM job_limits
-	WHERE launcher = $1 OR launcher IS NULL
-	ORDER BY launcher ASC
-`
-
-func (i *Internal) getJobLimitForUser(username string) (int, error) {
-	var jobLimit int
-	if err := i.db.QueryRow(getJobLimitForUserSQL, username).Scan(&jobLimit); err != nil {
-		return 0, err
-	}
-	return jobLimit, nil
-}
-
-func (i *Internal) validateJob(job *model.Job) error {
-
-	// Verify that the job type is supported by this service
-	if strings.ToLower(job.ExecutionTarget) != "interapps" {
-		return fmt.Errorf("job type %s is not supported by this service", job.Type)
-	}
-
-	// Get the username
-	user := slugString(job.Submitter)
-
-	// Verify that the user hasn't exceeded their limit for the number of concurrent jobs.
-	jobCount, err := i.countJobsForUser(user)
-	if err != nil {
-		return errors.Wrapf(err, "unable to determine the number of jobs the %s is currently running", user)
-	}
-	jobLimit, err := i.getJobLimitForUser(user)
-	if err != nil {
-		return errors.Wrapf(err, "unable to determine the concurrent job limit for %s", user)
-	}
-	if jobCount >= jobLimit {
-		return fmt.Errorf("%s is already running %d or more concurrent jobs", user, jobLimit)
-	}
-
-	return nil
-}
-
 // VICELaunchApp is the HTTP handler that orchestrates the launching of a VICE analysis inside
 // the k8s cluster. This get passed to the router to be associated with a route. The Job
 // is passed in as the body of the request.
