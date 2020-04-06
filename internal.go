@@ -52,7 +52,6 @@ type Init struct {
 	CheckResourceAccessService    string
 	VICEBackendNamespace          string
 	AppsServiceBaseURL            string
-	AppsUser                      string
 	ViceNamespace                 string
 	JobStatusURL                  string
 }
