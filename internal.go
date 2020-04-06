@@ -44,8 +44,6 @@ type Init struct {
 	CASBaseURL                    string
 	FrontendBaseURL               string
 	IngressBaseURL                string
-	AnalysisHeader                string
-	AccessHeader                  string
 	ViceDefaultBackendService     string
 	ViceDefaultBackendServicePort int
 	GetAnalysisIDService          string
