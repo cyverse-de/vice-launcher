@@ -43,7 +43,6 @@ type Init struct {
 	ViceProxyImage                string
 	CASBaseURL                    string
 	FrontendBaseURL               string
-	IngressBaseURL                string
 	ViceDefaultBackendService     string
 	ViceDefaultBackendServicePort int
 	GetAnalysisIDService          string
