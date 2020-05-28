@@ -811,22 +811,13 @@ func (i *Internal) ApplyAsyncLabelsHandler(writer http.ResponseWriter, request *
 // GetAsyncData returns the data that would be applied as labels as a
 // JSON-encoded map instead.
 func (i *Internal) GetAsyncData(writer http.ResponseWriter, request *http.Request) {
-	externalIDs, externalIDsFound := request.URL.Query()["external-id"]
-	if !externalIDsFound || len(externalIDs) < 1 {
+	externalIDs, found := request.URL.Query()["external-id"]
+	if !found || len(externalIDs) < 1 {
 		http.Error(writer, "external-id not set", http.StatusBadRequest)
 		return
 	}
 
 	externalID := externalIDs[0]
-
-	users, usersFound := request.URL.Query()["username"]
-
-	if !usersFound || len(users) < 1 {
-		http.Error(writer, "user not set", http.StatusForbidden)
-		return
-	}
-
-	user := users[0]
 
 	apps := apps.NewApps(i.db)
 
@@ -839,7 +830,6 @@ func (i *Internal) GetAsyncData(writer http.ResponseWriter, request *http.Reques
 
 	filter := map[string]string{
 		"external-id": externalID,
-		"username":    user,
 	}
 
 	deployments, err := i.deploymentList(i.ViceNamespace, filter)
