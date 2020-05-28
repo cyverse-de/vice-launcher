@@ -29,13 +29,13 @@ func (i *Internal) getService(job *model.Job, deployment *appsv1.Deployment) (*a
 				"external-id": job.InvocationID,
 			},
 			Ports: []apiv1.ServicePort{
-				apiv1.ServicePort{
+				{
 					Name:       fileTransfersPortName,
 					Protocol:   apiv1.ProtocolTCP,
 					Port:       fileTransfersPort,
 					TargetPort: intstr.FromString(fileTransfersPortName),
 				},
-				apiv1.ServicePort{
+				{
 					Name:       viceProxyPortName,
 					Protocol:   apiv1.ProtocolTCP,
 					Port:       viceProxyServicePort,

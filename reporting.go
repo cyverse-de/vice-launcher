@@ -807,3 +807,73 @@ func (i *Internal) ApplyAsyncLabelsHandler(writer http.ResponseWriter, request *
 		http.Error(writer, errMsg.String(), http.StatusInternalServerError)
 	}
 }
+
+// GetAsyncData returns the data that would be applied as labels as a
+// JSON-encoded map instead.
+func (i *Internal) GetAsyncData(writer http.ResponseWriter, request *http.Request) {
+	externalIDs, externalIDsFound := request.URL.Query()["external-id"]
+	if !externalIDsFound || len(externalIDs) < 1 {
+		http.Error(writer, "external-id not set", http.StatusBadRequest)
+		return
+	}
+
+	externalID := externalIDs[0]
+
+	users, usersFound := request.URL.Query()["username"]
+
+	if !usersFound || len(users) < 1 {
+		http.Error(writer, "user not set", http.StatusForbidden)
+		return
+	}
+
+	user := users[0]
+
+	apps := apps.NewApps(i.db)
+
+	analysisID, err := apps.GetAnalysisIDByExternalID(externalID)
+	if err != nil {
+		log.Error(err)
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	filter := map[string]string{
+		"external-id": externalID,
+		"username":    user,
+	}
+
+	deployments, err := i.deploymentList(i.ViceNamespace, filter)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if len(deployments.Items) < 1 {
+		http.Error(writer, "no deployments found", http.StatusInternalServerError)
+		return
+	}
+
+	labels := deployments.Items[0].GetLabels()
+	userID := labels["user-id"]
+
+	subdomain := IngressName(userID, externalID)
+	ipAddr, err := apps.GetUserIP(userID)
+	if err != nil {
+		log.Error(err)
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	buf, err := json.Marshal(map[string]string{
+		"analysisID": analysisID,
+		"subdomain":  subdomain,
+		"ipAddr":     ipAddr,
+	})
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	writer.Header().Add("Content-Type", "application/json")
+	fmt.Fprintf(writer, string(buf))
+}

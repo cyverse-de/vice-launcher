@@ -134,7 +134,7 @@ var (
 // the VICE app Deployment resource.
 func (i *Internal) initContainers(job *model.Job) []apiv1.Container {
 	return []apiv1.Container{
-		apiv1.Container{
+		{
 			Name:            fileTransfersInitContainerName,
 			Image:           fmt.Sprintf("%s:%s", i.PorklockImage, i.PorklockTag),
 			Command:         append(fileTransferCommand(job), "--no-service"),
@@ -316,7 +316,7 @@ func (i *Internal) defineAnalysisContainer(job *model.Job) apiv1.Container {
 // Deployment. It does not call the k8s API.
 func (i *Internal) deploymentContainers(job *model.Job) []apiv1.Container {
 	return []apiv1.Container{
-		apiv1.Container{
+		{
 			Name:            viceProxyContainerName,
 			Image:           i.ViceProxyImage,
 			Command:         i.viceProxyCommand(job),
@@ -356,7 +356,7 @@ func (i *Internal) deploymentContainers(job *model.Job) []apiv1.Container {
 				},
 			},
 		},
-		apiv1.Container{
+		{
 			Name:            fileTransfersContainerName,
 			Image:           fmt.Sprintf("%s:%s", i.PorklockImage, i.PorklockTag),
 			Command:         fileTransferCommand(job),
