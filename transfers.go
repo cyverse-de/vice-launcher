@@ -12,7 +12,6 @@ import (
 
 	"gopkg.in/cyverse-de/model.v4"
 
-	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
 
 	apiv1 "k8s.io/api/core/v1"
@@ -193,10 +192,8 @@ func isFinished(status string) bool {
 // doFileTransfer handles requests to initial file transfers for a VICE
 // analysis. We only need the ID of the job, nothing is required in the
 // body of the request.
-func (i *Internal) doFileTransfer(request *http.Request, reqpath, kind string, async bool) error {
-	id := mux.Vars(request)["id"]
-
-	log.Infof("starting %s transfers for job %s", kind, id)
+func (i *Internal) doFileTransfer(externalID, reqpath, kind string, async bool) error {
+	log.Infof("starting %s transfers for job %s", kind, externalID)
 
 	// Make sure that the list of services only comes from the VICE namespace.
 	svcclient := i.clientset.CoreV1().Services(i.ViceNamespace)
@@ -205,7 +202,7 @@ func (i *Internal) doFileTransfer(request *http.Request, reqpath, kind string, a
 	// returned. external-id is the job ID assigned by the apps service and is
 	// not the same as the analysis ID.
 	set := labels.Set(map[string]string{
-		"external-id": id,
+		"external-id": externalID,
 	})
 
 	svclist, err := svcclient.List(metav1.ListOptions{
@@ -216,7 +213,7 @@ func (i *Internal) doFileTransfer(request *http.Request, reqpath, kind string, a
 	}
 
 	if len(svclist.Items) < 1 {
-		return fmt.Errorf("no services with a label of 'external-id=%s' were found", id)
+		return fmt.Errorf("no services with a label of 'external-id=%s' were found", externalID)
 	}
 
 	// It's technically possibly for multiple services to provide file transfer services,
@@ -234,7 +231,7 @@ func (i *Internal) doFileTransfer(request *http.Request, reqpath, kind string, a
 				defer wg.Done()
 			}
 
-			log.Infof("%s transfer for %s", kind, id)
+			log.Infof("%s transfer for %s", kind, externalID)
 
 			transferObj, xfererr := requestTransfer(svc, reqpath)
 			if xfererr != nil {
@@ -256,42 +253,42 @@ func (i *Internal) doFileTransfer(request *http.Request, reqpath, kind string, a
 
 				switch currentStatus {
 				case FailedStatus:
-					msg := fmt.Sprintf("%s failed for job %s", kind, id)
+					msg := fmt.Sprintf("%s failed for job %s", kind, externalID)
 
 					err = errors.New(msg)
 
 					log.Error(err)
 
-					if failerr := i.statusPublisher.Running(id, msg); failerr != nil {
+					if failerr := i.statusPublisher.Running(externalID, msg); failerr != nil {
 						log.Error(failerr)
 					}
 
 					return
 				case CompletedStatus:
-					msg := fmt.Sprintf("%s succeeded for job %s", kind, id)
+					msg := fmt.Sprintf("%s succeeded for job %s", kind, externalID)
 
 					log.Info(msg)
 
-					if successerr := i.statusPublisher.Running(id, msg); successerr != nil {
+					if successerr := i.statusPublisher.Running(externalID, msg); successerr != nil {
 						log.Error(successerr)
 					}
 
 					return
 				case RequestedStatus:
-					msg := fmt.Sprintf("%s requested for job %s", kind, id)
+					msg := fmt.Sprintf("%s requested for job %s", kind, externalID)
 
-					if requestederr := i.statusPublisher.Running(id, msg); requestederr != nil {
+					if requestederr := i.statusPublisher.Running(externalID, msg); requestederr != nil {
 						log.Error(err)
 					}
 
 					break
 				case UploadingStatus:
 					if !sentUploadStatus {
-						msg := fmt.Sprintf("%s is in progress for job %s", kind, id)
+						msg := fmt.Sprintf("%s is in progress for job %s", kind, externalID)
 
 						log.Info(msg)
 
-						if uploadingerr := i.statusPublisher.Running(id, msg); uploadingerr != nil {
+						if uploadingerr := i.statusPublisher.Running(externalID, msg); uploadingerr != nil {
 							log.Error(err)
 						}
 
@@ -300,11 +297,11 @@ func (i *Internal) doFileTransfer(request *http.Request, reqpath, kind string, a
 					break
 				case DownloadingStatus:
 					if !sentDownloadStatus {
-						msg := fmt.Sprintf("%s is in progress for job %s", kind, id)
+						msg := fmt.Sprintf("%s is in progress for job %s", kind, externalID)
 
 						log.Info(msg)
 
-						if downloadingerr := i.statusPublisher.Running(id, msg); downloadingerr != nil {
+						if downloadingerr := i.statusPublisher.Running(externalID, msg); downloadingerr != nil {
 							log.Error(err)
 						}
 
