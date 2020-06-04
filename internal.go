@@ -627,26 +627,31 @@ func (i *Internal) VICETimeLimitUpdate(writer http.ResponseWriter, request *http
 	}
 	user = users[0]
 
-	if !strings.HasSuffix(user, "@iplantcollaborative.org") {
-		user = fmt.Sprintf("%s@iplantcollaborative.org", user)
+	if !strings.HasSuffix(user, userSuffix) {
+		user = fmt.Sprintf("%s%s", user, userSuffix)
 	}
 
 	// id is required
 	if id, found = mux.Vars(request)["analysis-id"]; !found {
-		http.Error(writer, errors.New("id parameter is empty").Error(), http.StatusBadRequest)
+		idErr := errors.New("id parameter is empty").Error()
+		http.Error(writer, idErr, http.StatusBadRequest)
+		log.Error(idErr)
 		return
 	}
 
 	outputMap, err := i.updateTimeLimit(user, id)
 	if err != nil {
 		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		log.Error(err)
 		return
 	}
 
 	var outputJSON []byte
 	outputJSON, err = json.Marshal(outputMap)
 	if err != nil {
-		http.Error(writer, errors.Wrapf(err, "error marshalling the JSON for the new time limit for analysis %s", id).Error(), http.StatusInternalServerError)
+		wrappedErr := errors.Wrapf(err, "error marshalling the JSON for the new time limit for analysis %s", id)
+		http.Error(writer, wrappedErr.Error(), http.StatusInternalServerError)
+		log.Error(wrappedErr)
 		return
 	}
 
