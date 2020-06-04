@@ -613,12 +613,11 @@ func (i *Internal) VICETimeLimitUpdate(writer http.ResponseWriter, request *http
 	log.Info("update time limit called")
 
 	var (
-		err    error
-		id     string
-		users  []string
-		user   string
-		userID string
-		found  bool
+		err   error
+		id    string
+		users []string
+		user  string
+		found bool
 	)
 
 	// user is required
@@ -638,27 +637,48 @@ func (i *Internal) VICETimeLimitUpdate(writer http.ResponseWriter, request *http
 		return
 	}
 
-	if err = i.db.QueryRow(getUserIDSQL, user).Scan(&userID); err != nil {
-		http.Error(writer, errors.Wrapf(err, "error looking user ID for %s", user).Error(), http.StatusBadRequest)
+	outputMap, err := i.updateTimeLimit(user, id)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	var newTimeLimit pq.NullTime
-	if err = i.db.QueryRow(updateTimeLimitSQL, userID, id).Scan(&newTimeLimit); err != nil {
-		http.Error(writer, errors.Wrapf(err, "error extending time limit for user %s on analysis %s", userID, id).Error(), http.StatusBadRequest)
+	var outputJSON []byte
+	outputJSON, err = json.Marshal(outputMap)
+	if err != nil {
+		http.Error(writer, errors.Wrapf(err, "error marshalling the JSON for the new time limit for analysis %s", id).Error(), http.StatusInternalServerError)
 		return
 	}
 
-	outputMap := map[string]string{}
-	if newTimeLimit.Valid {
-		v, err := newTimeLimit.Value()
-		if err != nil {
-			http.Error(writer, errors.Wrapf(err, "error getting new time limit for user %s on analysis %s", userID, id).Error(), http.StatusInternalServerError)
-			return
-		}
-		outputMap["time_limit"] = fmt.Sprintf("%d", v.(time.Time).Unix())
-	} else {
-		http.Error(writer, errors.Wrapf(err, "the time limit for analysis %s was null after extension", id).Error(), http.StatusInternalServerError)
+	fmt.Fprint(writer, string(outputJSON))
+}
+
+// VICEAdminTimeLimitUpdate is basically the same as VICETimeLimitUpdate
+// except that it doesn't require user information in the request.
+func (i *Internal) VICEAdminTimeLimitUpdate(writer http.ResponseWriter, request *http.Request) {
+	var (
+		err   error
+		found bool
+		id    string
+		user  string
+	)
+	// id is required
+	if id, found = mux.Vars(request)["analysis-id"]; !found {
+		http.Error(writer, errors.New("id parameter is empty").Error(), http.StatusBadRequest)
+		return
+	}
+
+	apps := apps.NewApps(i.db)
+
+	user, _, err = apps.GetUserByAnalysisID(id)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	outputMap, err := i.updateTimeLimit(user, id)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -779,6 +799,35 @@ func (i *Internal) getTimeLimit(userID, id string) (map[string]string, error) {
 		outputMap["time_limit"] = fmt.Sprintf("%d", v.(time.Time).Unix())
 	} else {
 		outputMap["time_limit"] = "null"
+	}
+
+	return outputMap, nil
+}
+
+func (i *Internal) updateTimeLimit(user, id string) (map[string]string, error) {
+	var (
+		err    error
+		userID string
+	)
+
+	if err = i.db.QueryRow(getUserIDSQL, user).Scan(&userID); err != nil {
+		return nil, errors.Wrapf(err, "error looking user ID for %s", user)
+	}
+
+	var newTimeLimit pq.NullTime
+	if err = i.db.QueryRow(updateTimeLimitSQL, userID, id).Scan(&newTimeLimit); err != nil {
+		return nil, errors.Wrapf(err, "error extending time limit for user %s on analysis %s", userID, id)
+	}
+
+	outputMap := map[string]string{}
+	if newTimeLimit.Valid {
+		v, err := newTimeLimit.Value()
+		if err != nil {
+			return nil, errors.Wrapf(err, "error getting new time limit for user %s on analysis %s", userID, id)
+		}
+		outputMap["time_limit"] = fmt.Sprintf("%d", v.(time.Time).Unix())
+	} else {
+		return nil, errors.Wrapf(err, "the time limit for analysis %s was null after extension", id)
 	}
 
 	return outputMap, nil
