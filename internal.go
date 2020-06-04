@@ -810,6 +810,10 @@ func (i *Internal) updateTimeLimit(user, id string) (map[string]string, error) {
 		userID string
 	)
 
+	if !strings.HasSuffix(user, userSuffix) {
+		user = fmt.Sprintf("%s%s", user, userSuffix)
+	}
+
 	if err = i.db.QueryRow(getUserIDSQL, user).Scan(&userID); err != nil {
 		return nil, errors.Wrapf(err, "error looking user ID for %s", user)
 	}

@@ -77,6 +77,8 @@ func (i *Internal) getExternalIDByAnalysisID(analysisID string) (string, error) 
 		return "", err
 	}
 
+	log.Infof("username %s", username)
+
 	externalIDs, err := i.getExternalIDs(username, analysisID)
 	if err != nil {
 		return "", err

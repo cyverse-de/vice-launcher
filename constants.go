@@ -52,6 +52,8 @@ const (
 	gpuAffinityKey      = "gpu"
 	gpuAffinityOperator = "In"
 	gpuAffinityValue    = "true"
+
+	userSuffix = "@iplantcollaborative.org"
 )
 
 func int32Ptr(i int32) *int32 { return &i }
