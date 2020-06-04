@@ -832,3 +832,39 @@ func (i *Internal) updateTimeLimit(user, id string) (map[string]string, error) {
 
 	return outputMap, nil
 }
+
+// VICEAdminGetExternalID returns the external ID associated with the analysis ID.
+// There is only one external ID for each VICE analysis, unlike non-VICE analyses.
+func (i *Internal) VICEAdminGetExternalID(writer http.ResponseWriter, request *http.Request) {
+	var (
+		err        error
+		analysisID string
+		externalID string
+		found      bool
+		outputJSON []byte
+	)
+
+	// analysisID is required
+	if analysisID, found = mux.Vars(request)["analysis-id"]; !found {
+		http.Error(writer, errors.New("id parameter is empty").Error(), http.StatusBadRequest)
+		return
+	}
+
+	externalID, err = i.getExternalIDByAnalysisID(analysisID)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	outputMap := map[string]string{
+		"externalID": externalID,
+	}
+
+	outputJSON, err = json.Marshal(outputMap)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	fmt.Fprint(writer, string(outputJSON))
+}
