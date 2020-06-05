@@ -578,7 +578,10 @@ func (i *Internal) VICEAdminSaveAndExit(writer http.ResponseWriter, request *htt
 
 		log.Debug("calling VICEExit")
 
-		i.VICEExit(writer, request)
+		if err = i.doExit(externalID); err != nil {
+			http.Error(writer, err.Error(), http.StatusInternalServerError)
+			log.Error(err)
+		}
 
 		log.Debug("after VICEExit")
 	}(writer, request)
@@ -626,10 +629,6 @@ func (i *Internal) VICETimeLimitUpdate(writer http.ResponseWriter, request *http
 		return
 	}
 	user = users[0]
-
-	if !strings.HasSuffix(user, userSuffix) {
-		user = fmt.Sprintf("%s%s", user, userSuffix)
-	}
 
 	// id is required
 	if id, found = mux.Vars(request)["analysis-id"]; !found {
