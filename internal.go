@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/cyverse-de/app-exposer/apps"
+	"github.com/cyverse-de/app-exposer/common"
 	"github.com/gorilla/mux"
 	"github.com/gosimple/slug"
 	"github.com/lib/pq"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 
 	"gopkg.in/cyverse-de/model.v4"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -22,11 +22,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-var log = logrus.WithFields(logrus.Fields{
-	"service": "app-exposer",
-	"art-id":  "app-exposer",
-	"group":   "org.cyverse",
-})
+var log = common.Log
 
 func slugString(str string) string {
 	slug.MaxLength = 63
