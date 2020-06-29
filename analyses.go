@@ -6,13 +6,14 @@ import (
 	"net/http"
 
 	"github.com/cyverse-de/app-exposer/apps"
+	"github.com/cyverse-de/app-exposer/common"
 )
 
 // GetAsyncData returns data that is generately asynchronously from the job launch.
 func (i *Internal) GetAsyncData(writer http.ResponseWriter, request *http.Request) {
 	externalIDs, found := request.URL.Query()["external-id"]
 	if !found || len(externalIDs) < 1 {
-		http.Error(writer, "external-id not set", http.StatusBadRequest)
+		common.Error(writer, "external-id not set", http.StatusBadRequest)
 		return
 	}
 
@@ -23,7 +24,7 @@ func (i *Internal) GetAsyncData(writer http.ResponseWriter, request *http.Reques
 	analysisID, err := apps.GetAnalysisIDByExternalID(externalID)
 	if err != nil {
 		log.Error(err)
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -33,12 +34,12 @@ func (i *Internal) GetAsyncData(writer http.ResponseWriter, request *http.Reques
 
 	deployments, err := i.deploymentList(i.ViceNamespace, filter)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	if len(deployments.Items) < 1 {
-		http.Error(writer, "no deployments found", http.StatusInternalServerError)
+		common.Error(writer, "no deployments found", http.StatusInternalServerError)
 		return
 	}
 
@@ -49,7 +50,7 @@ func (i *Internal) GetAsyncData(writer http.ResponseWriter, request *http.Reques
 	ipAddr, err := apps.GetUserIP(userID)
 	if err != nil {
 		log.Error(err)
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -59,7 +60,7 @@ func (i *Internal) GetAsyncData(writer http.ResponseWriter, request *http.Reques
 		"ipAddr":     ipAddr,
 	})
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
