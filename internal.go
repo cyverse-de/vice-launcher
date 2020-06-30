@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/cyverse-de/app-exposer/apps"
+	"github.com/cyverse-de/app-exposer/common"
 	"github.com/gorilla/mux"
 	"github.com/gosimple/slug"
 	"github.com/lib/pq"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 
 	"gopkg.in/cyverse-de/model.v4"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -22,11 +22,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-var log = logrus.WithFields(logrus.Fields{
-	"service": "app-exposer",
-	"art-id":  "app-exposer",
-	"group":   "org.cyverse",
-})
+var log = common.Log
 
 func slugString(str string) string {
 	slug.MaxLength = 63
@@ -223,24 +219,24 @@ func (i *Internal) VICELaunchApp(writer http.ResponseWriter, request *http.Reque
 
 	buf, err := ioutil.ReadAll(request.Body)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusBadRequest)
+		common.Error(writer, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	if err = json.Unmarshal(buf, job); err != nil {
-		http.Error(writer, err.Error(), http.StatusBadRequest)
+		common.Error(writer, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	if err = i.validateJob(job); err != nil {
-		http.Error(writer, err.Error(), http.StatusBadRequest)
+	if status, err := i.validateJob(job); err != nil {
+		common.DetailedError(writer, err, status)
 		return
 	}
 
 	// Create the excludes file ConfigMap for the job.
 	if err = i.UpsertExcludesConfigMap(job); err != nil {
 		if err != nil {
-			http.Error(
+			common.Error(
 				writer,
 				err.Error(),
 				http.StatusInternalServerError,
@@ -252,7 +248,7 @@ func (i *Internal) VICELaunchApp(writer http.ResponseWriter, request *http.Reque
 	// Create the input path list config map
 	if err = i.UpsertInputPathListConfigMap(job); err != nil {
 		if err != nil {
-			http.Error(
+			common.Error(
 				writer,
 				err.Error(),
 				http.StatusInternalServerError,
@@ -264,7 +260,7 @@ func (i *Internal) VICELaunchApp(writer http.ResponseWriter, request *http.Reque
 	// Create the deployment for the job.
 	if err = i.UpsertDeployment(job); err != nil {
 		if err != nil {
-			http.Error(
+			common.Error(
 				writer,
 				err.Error(),
 				http.StatusInternalServerError,
@@ -279,7 +275,7 @@ func (i *Internal) VICETriggerDownloads(writer http.ResponseWriter, request *htt
 	var err error
 	id := mux.Vars(request)["id"]
 	if err = i.doFileTransfer(id, downloadBasePath, downloadKind, true); err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 	}
 }
 
@@ -294,12 +290,12 @@ func (i *Internal) VICEAdminTriggerDownloads(writer http.ResponseWriter, request
 
 	externalID, err := i.getExternalIDByAnalysisID(analysisID)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusBadRequest)
+		common.Error(writer, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	if err = i.doFileTransfer(externalID, downloadBasePath, downloadKind, true); err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 	}
 }
 
@@ -308,7 +304,7 @@ func (i *Internal) VICETriggerUploads(writer http.ResponseWriter, request *http.
 	var err error
 	id := mux.Vars(request)["id"]
 	if err = i.doFileTransfer(id, uploadBasePath, uploadKind, true); err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 	}
 }
 
@@ -323,12 +319,12 @@ func (i *Internal) VICEAdminTriggerUploads(writer http.ResponseWriter, request *
 
 	externalID, err := i.getExternalIDByAnalysisID(analysisID)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusBadRequest)
+		common.Error(writer, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	if err = i.doFileTransfer(externalID, uploadBasePath, uploadKind, true); err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 	}
 }
 
@@ -410,7 +406,7 @@ func (i *Internal) VICEExit(writer http.ResponseWriter, request *http.Request) {
 	id := mux.Vars(request)["id"]
 
 	if err = i.doExit(id); err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 	}
 }
 
@@ -424,11 +420,11 @@ func (i *Internal) VICEAdminExit(writer http.ResponseWriter, request *http.Reque
 
 	externalID, err := i.getExternalIDByAnalysisID(analysisID)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusBadRequest)
+		common.Error(writer, err.Error(), http.StatusBadRequest)
 	}
 
 	if err = i.doExit(externalID); err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 	}
 }
 
@@ -465,7 +461,7 @@ func (i *Internal) VICEStatus(writer http.ResponseWriter, request *http.Request)
 
 	id, err := i.getIDFromHost(host)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusNotFound)
+		common.Error(writer, err.Error(), http.StatusNotFound)
 		return
 	}
 
@@ -485,7 +481,7 @@ func (i *Internal) VICEStatus(writer http.ResponseWriter, request *http.Request)
 	svcclient := i.clientset.CoreV1().Services(i.ViceNamespace)
 	svclist, err := svcclient.List(listoptions)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	if len(svclist.Items) > 0 {
@@ -496,7 +492,7 @@ func (i *Internal) VICEStatus(writer http.ResponseWriter, request *http.Request)
 	depclient := i.clientset.AppsV1().Deployments(i.ViceNamespace)
 	deplist, err := depclient.List(listoptions)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	for _, dep := range deplist.Items {
@@ -511,7 +507,7 @@ func (i *Internal) VICEStatus(writer http.ResponseWriter, request *http.Request)
 
 	body, err := json.Marshal(data)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -567,7 +563,7 @@ func (i *Internal) VICEAdminSaveAndExit(writer http.ResponseWriter, request *htt
 		analysisID := mux.Vars(request)["analysis-id"]
 
 		if externalID, err = i.getExternalIDByAnalysisID(analysisID); err != nil {
-			http.Error(writer, err.Error(), http.StatusInternalServerError)
+			common.Error(writer, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
@@ -579,7 +575,7 @@ func (i *Internal) VICEAdminSaveAndExit(writer http.ResponseWriter, request *htt
 		log.Debug("calling VICEExit")
 
 		if err = i.doExit(externalID); err != nil {
-			http.Error(writer, err.Error(), http.StatusInternalServerError)
+			common.Error(writer, err.Error(), http.StatusInternalServerError)
 			log.Error(err)
 		}
 
@@ -625,7 +621,7 @@ func (i *Internal) VICETimeLimitUpdate(writer http.ResponseWriter, request *http
 
 	// user is required
 	if users, found = request.URL.Query()["user"]; !found {
-		http.Error(writer, "user is not set", http.StatusForbidden)
+		common.Error(writer, "user is not set", http.StatusForbidden)
 		return
 	}
 	user = users[0]
@@ -633,14 +629,14 @@ func (i *Internal) VICETimeLimitUpdate(writer http.ResponseWriter, request *http
 	// id is required
 	if id, found = mux.Vars(request)["analysis-id"]; !found {
 		idErr := errors.New("id parameter is empty").Error()
-		http.Error(writer, idErr, http.StatusBadRequest)
+		common.Error(writer, idErr, http.StatusBadRequest)
 		log.Error(idErr)
 		return
 	}
 
 	outputMap, err := i.updateTimeLimit(user, id)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		log.Error(err)
 		return
 	}
@@ -649,7 +645,7 @@ func (i *Internal) VICETimeLimitUpdate(writer http.ResponseWriter, request *http
 	outputJSON, err = json.Marshal(outputMap)
 	if err != nil {
 		wrappedErr := errors.Wrapf(err, "error marshalling the JSON for the new time limit for analysis %s", id)
-		http.Error(writer, wrappedErr.Error(), http.StatusInternalServerError)
+		common.Error(writer, wrappedErr.Error(), http.StatusInternalServerError)
 		log.Error(wrappedErr)
 		return
 	}
@@ -668,7 +664,7 @@ func (i *Internal) VICEAdminTimeLimitUpdate(writer http.ResponseWriter, request 
 	)
 	// id is required
 	if id, found = mux.Vars(request)["analysis-id"]; !found {
-		http.Error(writer, errors.New("id parameter is empty").Error(), http.StatusBadRequest)
+		common.Error(writer, errors.New("id parameter is empty").Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -676,20 +672,20 @@ func (i *Internal) VICEAdminTimeLimitUpdate(writer http.ResponseWriter, request 
 
 	user, _, err = apps.GetUserByAnalysisID(id)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	outputMap, err := i.updateTimeLimit(user, id)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	var outputJSON []byte
 	outputJSON, err = json.Marshal(outputMap)
 	if err != nil {
-		http.Error(writer, errors.Wrapf(err, "error marshalling the JSON for the new time limit for analysis %s", id).Error(), http.StatusInternalServerError)
+		common.Error(writer, errors.Wrapf(err, "error marshalling the JSON for the new time limit for analysis %s", id).Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -711,7 +707,7 @@ func (i *Internal) VICEGetTimeLimit(writer http.ResponseWriter, request *http.Re
 
 	// user is required
 	if users, found = request.URL.Query()["user"]; !found {
-		http.Error(writer, "user is not set", http.StatusForbidden)
+		common.Error(writer, "user is not set", http.StatusForbidden)
 		return
 	}
 	user = users[0]
@@ -722,7 +718,7 @@ func (i *Internal) VICEGetTimeLimit(writer http.ResponseWriter, request *http.Re
 
 	// analysisID is required
 	if analysisID, found = mux.Vars(request)["analysis-id"]; !found {
-		http.Error(writer, errors.New("id parameter is empty").Error(), http.StatusBadRequest)
+		common.Error(writer, errors.New("id parameter is empty").Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -731,7 +727,7 @@ func (i *Internal) VICEGetTimeLimit(writer http.ResponseWriter, request *http.Re
 	// Could use this to get the username, but we need to not break other services.
 	_, userID, err = apps.GetUserByAnalysisID(analysisID)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -740,7 +736,7 @@ func (i *Internal) VICEGetTimeLimit(writer http.ResponseWriter, request *http.Re
 	var outputJSON []byte
 	outputJSON, err = json.Marshal(outputMap)
 	if err != nil {
-		http.Error(writer, errors.Wrapf(err, "error marshalling the JSON for the time limit for analysis %s", analysisID).Error(), http.StatusInternalServerError)
+		common.Error(writer, errors.Wrapf(err, "error marshalling the JSON for the time limit for analysis %s", analysisID).Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -761,7 +757,7 @@ func (i *Internal) VICEAdminGetTimeLimit(writer http.ResponseWriter, request *ht
 
 	// analysisID is required
 	if analysisID, found = mux.Vars(request)["analysis-id"]; !found {
-		http.Error(writer, errors.New("id parameter is empty").Error(), http.StatusBadRequest)
+		common.Error(writer, errors.New("id parameter is empty").Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -770,7 +766,7 @@ func (i *Internal) VICEAdminGetTimeLimit(writer http.ResponseWriter, request *ht
 	// Could use this to get the username, but we need to not break other services.
 	_, userID, err = apps.GetUserByAnalysisID(analysisID)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -779,7 +775,7 @@ func (i *Internal) VICEAdminGetTimeLimit(writer http.ResponseWriter, request *ht
 	var outputJSON []byte
 	outputJSON, err = json.Marshal(outputMap)
 	if err != nil {
-		http.Error(writer, errors.Wrapf(err, "error marshalling the JSON for the time limit for analysis %s", analysisID).Error(), http.StatusInternalServerError)
+		common.Error(writer, errors.Wrapf(err, "error marshalling the JSON for the time limit for analysis %s", analysisID).Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -854,13 +850,13 @@ func (i *Internal) VICEAdminGetExternalID(writer http.ResponseWriter, request *h
 
 	// analysisID is required
 	if analysisID, found = mux.Vars(request)["analysis-id"]; !found {
-		http.Error(writer, errors.New("id parameter is empty").Error(), http.StatusBadRequest)
+		common.Error(writer, errors.New("id parameter is empty").Error(), http.StatusBadRequest)
 		return
 	}
 
 	externalID, err = i.getExternalIDByAnalysisID(analysisID)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -870,7 +866,7 @@ func (i *Internal) VICEAdminGetExternalID(writer http.ResponseWriter, request *h
 
 	outputJSON, err = json.Marshal(outputMap)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 

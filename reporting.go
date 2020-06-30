@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/cyverse-de/app-exposer/apps"
+	"github.com/cyverse-de/app-exposer/common"
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -327,7 +328,7 @@ func (i *Internal) FilterableDeployments(writer http.ResponseWriter, request *ht
 
 	deployments, err := i.getFilteredDeployments(filter)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -335,7 +336,7 @@ func (i *Internal) FilterableDeployments(writer http.ResponseWriter, request *ht
 		"deployments": deployments,
 	})
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -367,7 +368,7 @@ func (i *Internal) FilterablePods(writer http.ResponseWriter, request *http.Requ
 
 	pods, err := i.getFilteredPods(filter)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -375,7 +376,7 @@ func (i *Internal) FilterablePods(writer http.ResponseWriter, request *http.Requ
 		"pods": pods,
 	})
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -407,7 +408,7 @@ func (i *Internal) FilterableConfigMaps(writer http.ResponseWriter, request *htt
 
 	cms, err := i.getFilteredConfigMaps(filter)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -415,7 +416,7 @@ func (i *Internal) FilterableConfigMaps(writer http.ResponseWriter, request *htt
 		"configmaps": cms,
 	})
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -447,7 +448,7 @@ func (i *Internal) FilterableServices(writer http.ResponseWriter, request *http.
 
 	svcs, err := i.getFilteredServices(filter)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -455,7 +456,7 @@ func (i *Internal) FilterableServices(writer http.ResponseWriter, request *http.
 		"services": svcs,
 	})
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -487,7 +488,7 @@ func (i *Internal) FilterableIngresses(writer http.ResponseWriter, request *http
 
 	ingresses, err := i.getFilteredIngresses(filter)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -495,7 +496,7 @@ func (i *Internal) FilterableIngresses(writer http.ResponseWriter, request *http
 		"ingresses": ingresses,
 	})
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -521,31 +522,31 @@ func (i *Internal) FilterableResources(writer http.ResponseWriter, request *http
 
 	deployments, err := i.getFilteredDeployments(filter)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	pods, err := i.getFilteredPods(filter)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	cms, err := i.getFilteredConfigMaps(filter)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	svcs, err := i.getFilteredServices(filter)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	ingresses, err := i.getFilteredIngresses(filter)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -557,7 +558,7 @@ func (i *Internal) FilterableResources(writer http.ResponseWriter, request *http
 		Ingresses:   ingresses,
 	})
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -804,7 +805,7 @@ func (i *Internal) ApplyAsyncLabelsHandler(writer http.ResponseWriter, request *
 			fmt.Fprintf(&errMsg, "%s\n", err.Error())
 		}
 
-		http.Error(writer, errMsg.String(), http.StatusInternalServerError)
+		common.Error(writer, errMsg.String(), http.StatusInternalServerError)
 	}
 }
 

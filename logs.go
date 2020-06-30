@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cyverse-de/app-exposer/common"
 	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
 	apiv1 "k8s.io/api/core/v1"
@@ -121,25 +122,25 @@ func (i *Internal) VICELogs(writer http.ResponseWriter, request *http.Request) {
 
 	// id is required
 	if id, found = mux.Vars(request)["analysis-id"]; !found {
-		http.Error(writer, errors.New("id parameter is empty").Error(), http.StatusBadRequest)
+		common.Error(writer, errors.New("id parameter is empty").Error(), http.StatusBadRequest)
 		return
 	}
 
 	// user is required
 	if users, found = request.URL.Query()["user"]; !found {
-		http.Error(writer, "user is not set", http.StatusForbidden)
+		common.Error(writer, "user is not set", http.StatusForbidden)
 		return
 	}
 	user = users[0]
 
 	externalIDs, err := i.getExternalIDs(user, id)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	if len(externalIDs) < 1 {
-		http.Error(writer, fmt.Errorf("no external-ids found for analysis-id %s", id).Error(), http.StatusInternalServerError)
+		common.Error(writer, fmt.Errorf("no external-ids found for analysis-id %s", id).Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -152,7 +153,7 @@ func (i *Internal) VICELogs(writer http.ResponseWriter, request *http.Request) {
 	// previous is optional
 	if queryParams.Get("previous") != "" {
 		if previous, err = strconv.ParseBool(queryParams.Get("previous")); err != nil {
-			http.Error(writer, err.Error(), http.StatusBadRequest)
+			common.Error(writer, err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -162,7 +163,7 @@ func (i *Internal) VICELogs(writer http.ResponseWriter, request *http.Request) {
 	// since is optional
 	if queryParams.Get("since") != "" {
 		if since, err = strconv.ParseInt(queryParams.Get("since"), 10, 64); err != nil {
-			http.Error(writer, err.Error(), http.StatusBadRequest)
+			common.Error(writer, err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -171,7 +172,7 @@ func (i *Internal) VICELogs(writer http.ResponseWriter, request *http.Request) {
 
 	if queryParams.Get("since-time") != "" {
 		if sinceTime, err = strconv.ParseInt(queryParams.Get("since-time"), 10, 64); err != nil {
-			http.Error(writer, err.Error(), http.StatusBadRequest)
+			common.Error(writer, err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -182,7 +183,7 @@ func (i *Internal) VICELogs(writer http.ResponseWriter, request *http.Request) {
 	// tail-lines is optional
 	if queryParams.Get("tail-lines") != "" {
 		if tailLines, err = strconv.ParseInt(queryParams.Get("tail-lines"), 10, 64); err != nil {
-			http.Error(writer, err.Error(), http.StatusBadRequest)
+			common.Error(writer, err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -196,7 +197,7 @@ func (i *Internal) VICELogs(writer http.ResponseWriter, request *http.Request) {
 	// timestamps is optional
 	if queryParams.Get("timestamps") != "" {
 		if timestamps, err = strconv.ParseBool(queryParams.Get("timestamps")); err != nil {
-			http.Error(writer, err.Error(), http.StatusBadRequest)
+			common.Error(writer, err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -216,12 +217,12 @@ func (i *Internal) VICELogs(writer http.ResponseWriter, request *http.Request) {
 	// but we're only going to use the first pod for now.
 	podList, err := i.getPods(externalID)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	if len(podList) < 1 {
-		http.Error(
+		common.Error(
 			writer,
 			fmt.Errorf("no pods found for analysis %s with external ID %s", id, externalID).Error(),
 			http.StatusInternalServerError,
@@ -234,20 +235,20 @@ func (i *Internal) VICELogs(writer http.ResponseWriter, request *http.Request) {
 	// Finally, actually get the logs and write the response out
 	podLogs := i.clientset.CoreV1().Pods(i.ViceNamespace).GetLogs(podName, logOpts)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	logReadCloser, err := podLogs.Stream()
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer logReadCloser.Close()
 
 	bodyBytes, err := ioutil.ReadAll(logReadCloser)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -260,7 +261,7 @@ func (i *Internal) VICELogs(writer http.ResponseWriter, request *http.Request) {
 			Lines:     bodyLines,
 		},
 	); err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 	}
 
 }
@@ -300,7 +301,7 @@ func (i *Internal) VICEPods(writer http.ResponseWriter, request *http.Request) {
 	users, found := request.URL.Query()["user"]
 
 	if !found || len(users) < 1 {
-		http.Error(writer, "user not set", http.StatusForbidden)
+		common.Error(writer, "user not set", http.StatusForbidden)
 		return
 	}
 
@@ -308,12 +309,12 @@ func (i *Internal) VICEPods(writer http.ResponseWriter, request *http.Request) {
 
 	externalIDs, err := i.getExternalIDs(user, analysisID)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	if len(externalIDs) == 0 {
-		http.Error(writer, fmt.Errorf("no external-id found for analysis-id %s", analysisID).Error(), http.StatusInternalServerError)
+		common.Error(writer, fmt.Errorf("no external-id found for analysis-id %s", analysisID).Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -322,7 +323,7 @@ func (i *Internal) VICEPods(writer http.ResponseWriter, request *http.Request) {
 
 	returnedPods, err := i.getPods(externalID)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -331,7 +332,7 @@ func (i *Internal) VICEPods(writer http.ResponseWriter, request *http.Request) {
 			"pods": returnedPods,
 		},
 	); err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		common.Error(writer, err.Error(), http.StatusInternalServerError)
 	}
 
 }
