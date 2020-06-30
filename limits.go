@@ -157,7 +157,8 @@ func (i *Internal) validateJob(job *model.Job) (int, error) {
 	// Return a detailed error if the user has exceeded thier job limit.
 	if jobCount >= effectiveJobLimit {
 		return http.StatusBadRequest, common.ErrorResponse{
-			Message: fmt.Sprintf("%s is already running %d or more concurrent jobs", user, jobLimit),
+			Message:   fmt.Sprintf("%s is already running %d or more concurrent jobs", user, jobLimit),
+			ErrorCode: "ERR_LIMIT_EXCEEDED",
 			Details: &map[string]interface{}{
 				"defaultJobLimit": defaultJobLimit,
 				"jobCount":        jobCount,
