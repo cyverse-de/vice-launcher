@@ -1,10 +1,12 @@
 package internal
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 
 	"github.com/cyverse-de/app-exposer/apps"
+	"github.com/cyverse-de/app-exposer/common"
 	"github.com/pkg/errors"
 	"gopkg.in/cyverse-de/model.v4"
 	v1 "k8s.io/api/apps/v1"
@@ -93,16 +95,32 @@ func (i *Internal) countJobsForUser(username string) (int, error) {
 
 const getJobLimitForUserSQL = `
 	SELECT concurrent_jobs FROM job_limits
-	WHERE launcher = $1 OR launcher IS NULL
-	ORDER BY launcher ASC
+	WHERE launcher = $1
 `
 
-func (i *Internal) getJobLimitForUser(username string) (int, error) {
+func (i *Internal) getJobLimitForUser(username string) (*int, error) {
 	var jobLimit int
-	if err := i.db.QueryRow(getJobLimitForUserSQL, username).Scan(&jobLimit); err != nil {
+	err := i.db.QueryRow(getJobLimitForUserSQL, username).Scan(&jobLimit)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &jobLimit, nil
+}
+
+const getDefaultJobLimitSQL = `
+	SELECT concurrent_jobs FROM job_limits
+	WHERE launcher IS NULL
+`
+
+func (i *Internal) getDefaultJobLimit() (int, error) {
+	var defaultJobLimit int
+	if err := i.db.QueryRow(getDefaultJobLimitSQL).Scan(&defaultJobLimit); err != nil {
 		return 0, err
 	}
-	return jobLimit, nil
+	return defaultJobLimit, nil
 }
 
 func (i *Internal) validateJob(job *model.Job) error {
@@ -124,8 +142,27 @@ func (i *Internal) validateJob(job *model.Job) error {
 	if err != nil {
 		return errors.Wrapf(err, "unable to determine the concurrent job limit for %s", user)
 	}
-	if jobCount >= jobLimit {
-		return fmt.Errorf("%s is already running %d or more concurrent jobs", user, jobLimit)
+	defaultJobLimit, err := i.getDefaultJobLimit()
+	if err != nil {
+		return errors.Wrapf(err, "unable to determine the default concurrent job limit")
+	}
+	var effectiveJobLimit int
+	if jobLimit != nil {
+		effectiveJobLimit = *jobLimit
+	} else {
+		effectiveJobLimit = defaultJobLimit
+	}
+
+	// Return a detailed error if the user has exceeded thier job limit.
+	if jobCount >= effectiveJobLimit {
+		return common.ErrorResponse{
+			Message: fmt.Sprintf("%s is already running %d or more concurrent jobs", user, jobLimit),
+			Details: &map[string]interface{}{
+				"defaultJobLimit": defaultJobLimit,
+				"jobCount":        jobCount,
+				"jobLimit":        jobLimit,
+			},
+		}
 	}
 
 	return nil
