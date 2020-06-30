@@ -124,6 +124,51 @@ func (i *Internal) getDefaultJobLimit() (int, error) {
 	return defaultJobLimit, nil
 }
 
+func buildLimitError(code, msg string, defaultJobLimit, jobCount int, jobLimit *int) error {
+	return common.ErrorResponse{
+		ErrorCode: code,
+		Message:   msg,
+		Details: &map[string]interface{}{
+			"defaultJobLimit": defaultJobLimit,
+			"jobCount":        jobCount,
+			"jobLimit":        jobLimit,
+		},
+	}
+}
+
+func validateJobLimits(user string, defaultJobLimit, jobCount int, jobLimit *int) (int, error) {
+	switch {
+
+	// Jobs are disabled by default and the user has not been granted permission yet.
+	case jobLimit == nil && defaultJobLimit <= 0:
+		code := "ERR_PERMISSION_NEEDED"
+		msg := fmt.Sprintf("%s has not been granted permission to run jobs yet", user)
+		return http.StatusBadRequest, buildLimitError(code, msg, defaultJobLimit, jobCount, jobLimit)
+
+	// Jobs have been explicitly disabled for the user.
+	case jobLimit != nil && *jobLimit <= 0:
+		code := "ERR_FORBIDDEN"
+		msg := fmt.Sprintf("%s is not permitted to run jobs", user)
+		return http.StatusBadRequest, buildLimitError(code, msg, defaultJobLimit, jobCount, jobLimit)
+
+	// The user is using and has reached the default job limit.
+	case jobLimit == nil && jobCount >= defaultJobLimit:
+		code := "ERR_LIMIT_REACHED"
+		msg := fmt.Sprintf("%s is already running %d or more concurent jobs", user, defaultJobLimit)
+		return http.StatusBadRequest, buildLimitError(code, msg, defaultJobLimit, jobCount, jobLimit)
+
+	// The user has explicitly been granted the ability to run jobs and has reached the limit.
+	case jobLimit != nil && jobCount >= *jobLimit:
+		code := "ERR_LIMIT_REACHED"
+		msg := fmt.Sprintf("%s is already running %d or more concurent jobs", user, *jobLimit)
+		return http.StatusBadRequest, buildLimitError(code, msg, defaultJobLimit, jobCount, jobLimit)
+
+	// In every other case, we can permit the job to be launched.
+	default:
+		return http.StatusOK, nil
+	}
+}
+
 func (i *Internal) validateJob(job *model.Job) (int, error) {
 
 	// Verify that the job type is supported by this service
@@ -134,10 +179,10 @@ func (i *Internal) validateJob(job *model.Job) (int, error) {
 	// Get the username
 	user := slugString(job.Submitter)
 
-	// Verify that the user hasn't exceeded their limit for the number of concurrent jobs.
+	// Look
 	jobCount, err := i.countJobsForUser(user)
 	if err != nil {
-		return http.StatusInternalServerError, errors.Wrapf(err, "unable to determine the number of jobs the %s is currently running", user)
+		return http.StatusInternalServerError, errors.Wrapf(err, "unable to determine the number of jobs that %s is currently running", user)
 	}
 	jobLimit, err := i.getJobLimitForUser(user)
 	if err != nil {
@@ -147,25 +192,5 @@ func (i *Internal) validateJob(job *model.Job) (int, error) {
 	if err != nil {
 		return http.StatusInternalServerError, errors.Wrapf(err, "unable to determine the default concurrent job limit")
 	}
-	var effectiveJobLimit int
-	if jobLimit != nil {
-		effectiveJobLimit = *jobLimit
-	} else {
-		effectiveJobLimit = defaultJobLimit
-	}
-
-	// Return a detailed error if the user has exceeded thier job limit.
-	if jobCount >= effectiveJobLimit {
-		return http.StatusBadRequest, common.ErrorResponse{
-			Message:   fmt.Sprintf("%s is already running %d or more concurrent jobs", user, jobLimit),
-			ErrorCode: "ERR_LIMIT_EXCEEDED",
-			Details: &map[string]interface{}{
-				"defaultJobLimit": defaultJobLimit,
-				"jobCount":        jobCount,
-				"jobLimit":        jobLimit,
-			},
-		}
-	}
-
-	return http.StatusOK, nil
+	return validateJobLimits(user, defaultJobLimit, jobCount, jobLimit)
 }
