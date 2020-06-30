@@ -228,8 +228,8 @@ func (i *Internal) VICELaunchApp(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 
-	if err = i.validateJob(job); err != nil {
-		common.Error(writer, err.Error(), http.StatusBadRequest)
+	if status, err := i.validateJob(job); err != nil {
+		common.DetailedError(writer, err, status)
 		return
 	}
 

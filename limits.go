@@ -3,6 +3,7 @@ package internal
 import (
 	"database/sql"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/cyverse-de/app-exposer/apps"
@@ -123,11 +124,11 @@ func (i *Internal) getDefaultJobLimit() (int, error) {
 	return defaultJobLimit, nil
 }
 
-func (i *Internal) validateJob(job *model.Job) error {
+func (i *Internal) validateJob(job *model.Job) (int, error) {
 
 	// Verify that the job type is supported by this service
 	if strings.ToLower(job.ExecutionTarget) != "interapps" {
-		return fmt.Errorf("job type %s is not supported by this service", job.Type)
+		return http.StatusInternalServerError, fmt.Errorf("job type %s is not supported by this service", job.Type)
 	}
 
 	// Get the username
@@ -136,15 +137,15 @@ func (i *Internal) validateJob(job *model.Job) error {
 	// Verify that the user hasn't exceeded their limit for the number of concurrent jobs.
 	jobCount, err := i.countJobsForUser(user)
 	if err != nil {
-		return errors.Wrapf(err, "unable to determine the number of jobs the %s is currently running", user)
+		return http.StatusInternalServerError, errors.Wrapf(err, "unable to determine the number of jobs the %s is currently running", user)
 	}
 	jobLimit, err := i.getJobLimitForUser(user)
 	if err != nil {
-		return errors.Wrapf(err, "unable to determine the concurrent job limit for %s", user)
+		return http.StatusInternalServerError, errors.Wrapf(err, "unable to determine the concurrent job limit for %s", user)
 	}
 	defaultJobLimit, err := i.getDefaultJobLimit()
 	if err != nil {
-		return errors.Wrapf(err, "unable to determine the default concurrent job limit")
+		return http.StatusInternalServerError, errors.Wrapf(err, "unable to determine the default concurrent job limit")
 	}
 	var effectiveJobLimit int
 	if jobLimit != nil {
@@ -155,7 +156,7 @@ func (i *Internal) validateJob(job *model.Job) error {
 
 	// Return a detailed error if the user has exceeded thier job limit.
 	if jobCount >= effectiveJobLimit {
-		return common.ErrorResponse{
+		return http.StatusBadRequest, common.ErrorResponse{
 			Message: fmt.Sprintf("%s is already running %d or more concurrent jobs", user, jobLimit),
 			Details: &map[string]interface{}{
 				"defaultJobLimit": defaultJobLimit,
@@ -165,5 +166,5 @@ func (i *Internal) validateJob(job *model.Job) error {
 		}
 	}
 
-	return nil
+	return http.StatusOK, nil
 }
