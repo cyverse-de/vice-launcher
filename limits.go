@@ -154,13 +154,13 @@ func validateJobLimits(user string, defaultJobLimit, jobCount int, jobLimit *int
 	// The user is using and has reached the default job limit.
 	case jobLimit == nil && jobCount >= defaultJobLimit:
 		code := "ERR_LIMIT_REACHED"
-		msg := fmt.Sprintf("%s is already running %d or more concurent jobs", user, defaultJobLimit)
+		msg := fmt.Sprintf("%s is already running %d or more concurrent jobs", user, defaultJobLimit)
 		return http.StatusBadRequest, buildLimitError(code, msg, defaultJobLimit, jobCount, jobLimit)
 
 	// The user has explicitly been granted the ability to run jobs and has reached the limit.
 	case jobLimit != nil && jobCount >= *jobLimit:
 		code := "ERR_LIMIT_REACHED"
-		msg := fmt.Sprintf("%s is already running %d or more concurent jobs", user, *jobLimit)
+		msg := fmt.Sprintf("%s is already running %d or more concurrent jobs", user, *jobLimit)
 		return http.StatusBadRequest, buildLimitError(code, msg, defaultJobLimit, jobCount, jobLimit)
 
 	// In every other case, we can permit the job to be launched.
