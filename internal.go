@@ -13,7 +13,7 @@ import (
 	"github.com/lib/pq"
 	"github.com/pkg/errors"
 
-	"gopkg.in/cyverse-de/model.v4"
+	"gopkg.in/cyverse-de/model.v5"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
@@ -33,6 +33,7 @@ func slugString(str string) string {
 type Init struct {
 	PorklockImage                 string
 	PorklockTag                   string
+	UseCSIDriver                  bool
 	InputPathListIdentifier       string
 	TicketInputPathListIdentifier string
 	ViceProxyImage                string
@@ -176,6 +177,53 @@ func (i *Internal) UpsertDeployment(job *model.Job) error {
 		_, err = depclient.Update(deployment)
 		if err != nil {
 			return err
+		}
+	}
+
+	// Create the persistent volumes and persistent volume claims for the job.
+	volumes, err := i.getPersistentVolumes(job)
+	if err != nil {
+		return err
+	}
+
+	volumeclaims, err := i.getPersistentVolumeClaims(job)
+	if err != nil {
+		return err
+	}
+
+	if len(volumes) > 0 {
+		pvclient := i.clientset.CoreV1().PersistentVolumes()
+		for _, v := range volumes {
+			_, err = pvclient.Get(v.GetName(), metav1.GetOptions{})
+			if err != nil {
+				_, err = pvclient.Create(v)
+				if err != nil {
+					return err
+				}
+			} else {
+				_, err = pvclient.Update(v)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	if len(volumeclaims) > 0 {
+		pvcclient := i.clientset.CoreV1().PersistentVolumeClaims(i.ViceNamespace)
+		for _, vc := range volumeclaims {
+			_, err = pvcclient.Get(vc.GetName(), metav1.GetOptions{})
+			if err != nil {
+				_, err = pvcclient.Create(vc)
+				if err != nil {
+					return err
+				}
+			} else {
+				_, err = pvcclient.Update(vc)
+				if err != nil {
+					return err
+				}
+			}
 		}
 	}
 

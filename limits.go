@@ -9,7 +9,7 @@ import (
 	"github.com/cyverse-de/app-exposer/apps"
 	"github.com/cyverse-de/app-exposer/common"
 	"github.com/pkg/errors"
-	"gopkg.in/cyverse-de/model.v4"
+	"gopkg.in/cyverse-de/model.v5"
 	v1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"

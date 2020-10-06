@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"gopkg.in/cyverse-de/model.v4"
+	"gopkg.in/cyverse-de/model.v5"
 	appsv1 "k8s.io/api/apps/v1"
 	apiv1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/apimachinery/pkg/api/resource"
@@ -37,7 +37,7 @@ func analysisPorts(step *model.Step) []apiv1.ContainerPort {
 // it returns the objects that can be included in the Deployment object that
 // will get passed to the k8s API later. Also not that these are the Volumes,
 // not the container-specific VolumeMounts.
-func deploymentVolumes(job *model.Job) []apiv1.Volume {
+func (i *Internal) deploymentVolumes(job *model.Job) []apiv1.Volume {
 	output := []apiv1.Volume{}
 
 	if len(job.FilterInputsWithoutTickets()) > 0 {
@@ -53,21 +53,35 @@ func deploymentVolumes(job *model.Job) []apiv1.Volume {
 		})
 	}
 
-	output = append(output,
-		apiv1.Volume{
-			Name: fileTransfersVolumeName,
-			VolumeSource: apiv1.VolumeSource{
-				EmptyDir: &apiv1.EmptyDirVolumeSource{},
-			},
-		},
-		apiv1.Volume{
-			Name: porklockConfigVolumeName,
-			VolumeSource: apiv1.VolumeSource{
-				Secret: &apiv1.SecretVolumeSource{
-					SecretName: porklockConfigSecretName,
+	if i.UseCSIDriver {
+		volumeSources, err := i.getPersistentVolumeSources(job)
+		if err != nil {
+			log.Warn(err)
+		} else {
+			if len(volumeSources) > 0 {
+				output = append(output, volumeSources...)
+			}
+		}
+	} else {
+		output = append(output,
+			apiv1.Volume{
+				Name: fileTransfersVolumeName,
+				VolumeSource: apiv1.VolumeSource{
+					EmptyDir: &apiv1.EmptyDirVolumeSource{},
 				},
 			},
-		},
+			apiv1.Volume{
+				Name: porklockConfigVolumeName,
+				VolumeSource: apiv1.VolumeSource{
+					Secret: &apiv1.SecretVolumeSource{
+						SecretName: porklockConfigSecretName,
+					},
+				},
+			},
+		)
+	}
+
+	output = append(output,
 		apiv1.Volume{
 			Name: excludesVolumeName,
 			VolumeSource: apiv1.VolumeSource{
@@ -158,8 +172,10 @@ var (
 // initContainers returns a []apiv1.Container used for the InitContainers in
 // the VICE app Deployment resource.
 func (i *Internal) initContainers(job *model.Job) []apiv1.Container {
-	return []apiv1.Container{
-		{
+	output := []apiv1.Container{}
+
+	if !i.UseCSIDriver {
+		output = append(output, apiv1.Container{
 			Name:            fileTransfersInitContainerName,
 			Image:           fmt.Sprintf("%s:%s", i.PorklockImage, i.PorklockTag),
 			Command:         append(fileTransferCommand(job), "--no-service"),
@@ -192,8 +208,10 @@ func (i *Internal) initContainers(job *model.Job) []apiv1.Container {
 					},
 				},
 			},
-		},
+		})
 	}
+
+	return output
 }
 
 func gpuEnabled(job *model.Job) bool {
@@ -285,6 +303,22 @@ func (i *Internal) defineAnalysisContainer(job *model.Job) apiv1.Container {
 		}
 	}
 
+	volumeMounts := []apiv1.VolumeMount{}
+	if i.UseCSIDriver {
+		persistentVolumeMounts, err := i.getPersistentVolumeMounts(job)
+		if err != nil {
+			log.Warn(err)
+		} else {
+			volumeMounts = append(volumeMounts, persistentVolumeMounts...)
+		}
+	} else {
+		volumeMounts = append(volumeMounts, apiv1.VolumeMount{
+			Name:      fileTransfersVolumeName,
+			MountPath: fileTransfersMountPath(job),
+			ReadOnly:  false,
+		})
+	}
+
 	analysisContainer := apiv1.Container{
 		Name: analysisContainerName,
 		Image: fmt.Sprintf(
@@ -298,14 +332,8 @@ func (i *Internal) defineAnalysisContainer(job *model.Job) apiv1.Container {
 			Limits:   limits,
 			Requests: requests,
 		},
-		VolumeMounts: []apiv1.VolumeMount{
-			{
-				Name:      fileTransfersVolumeName,
-				MountPath: fileTransfersMountPath(job),
-				ReadOnly:  false,
-			},
-		},
-		Ports: analysisPorts(&job.Steps[0]),
+		VolumeMounts: volumeMounts,
+		Ports:        analysisPorts(&job.Steps[0]),
 		SecurityContext: &apiv1.SecurityContext{
 			RunAsUser:  int64Ptr(int64(job.Steps[0].Component.Container.UID)),
 			RunAsGroup: int64Ptr(int64(job.Steps[0].Component.Container.UID)),
@@ -361,48 +389,51 @@ func (i *Internal) defineAnalysisContainer(job *model.Job) apiv1.Container {
 // deploymentContainers returns the Containers needed for the VICE analysis
 // Deployment. It does not call the k8s API.
 func (i *Internal) deploymentContainers(job *model.Job) []apiv1.Container {
-	return []apiv1.Container{
-		{
-			Name:            viceProxyContainerName,
-			Image:           i.ViceProxyImage,
-			Command:         i.viceProxyCommand(job),
-			ImagePullPolicy: apiv1.PullPolicy(apiv1.PullAlways),
-			Ports: []apiv1.ContainerPort{
-				{
-					Name:          viceProxyPortName,
-					ContainerPort: viceProxyPort,
-					Protocol:      apiv1.Protocol("TCP"),
-				},
+	output := []apiv1.Container{}
+
+	output = append(output, apiv1.Container{
+		Name:            viceProxyContainerName,
+		Image:           i.ViceProxyImage,
+		Command:         i.viceProxyCommand(job),
+		ImagePullPolicy: apiv1.PullPolicy(apiv1.PullAlways),
+		Ports: []apiv1.ContainerPort{
+			{
+				Name:          viceProxyPortName,
+				ContainerPort: viceProxyPort,
+				Protocol:      apiv1.Protocol("TCP"),
 			},
-			SecurityContext: &apiv1.SecurityContext{
-				RunAsUser:  int64Ptr(int64(job.Steps[0].Component.Container.UID)),
-				RunAsGroup: int64Ptr(int64(job.Steps[0].Component.Container.UID)),
-				Capabilities: &apiv1.Capabilities{
-					Drop: []apiv1.Capability{
-						"SETPCAP",
-						"AUDIT_WRITE",
-						"KILL",
-						"SETGID",
-						"SETUID",
-						"SYS_CHROOT",
-						"SETFCAP",
-						"FSETID",
-						"NET_RAW",
-						"MKNOD",
-					},
-				},
-			},
-			ReadinessProbe: &apiv1.Probe{
-				Handler: apiv1.Handler{
-					HTTPGet: &apiv1.HTTPGetAction{
-						Port:   intstr.FromInt(int(viceProxyPort)),
-						Scheme: apiv1.URISchemeHTTP,
-						Path:   "/",
-					},
+		},
+		SecurityContext: &apiv1.SecurityContext{
+			RunAsUser:  int64Ptr(int64(job.Steps[0].Component.Container.UID)),
+			RunAsGroup: int64Ptr(int64(job.Steps[0].Component.Container.UID)),
+			Capabilities: &apiv1.Capabilities{
+				Drop: []apiv1.Capability{
+					"SETPCAP",
+					"AUDIT_WRITE",
+					"KILL",
+					"SETGID",
+					"SETUID",
+					"SYS_CHROOT",
+					"SETFCAP",
+					"FSETID",
+					"NET_RAW",
+					"MKNOD",
 				},
 			},
 		},
-		{
+		ReadinessProbe: &apiv1.Probe{
+			Handler: apiv1.Handler{
+				HTTPGet: &apiv1.HTTPGetAction{
+					Port:   intstr.FromInt(int(viceProxyPort)),
+					Scheme: apiv1.URISchemeHTTP,
+					Path:   "/",
+				},
+			},
+		},
+	})
+
+	if !i.UseCSIDriver {
+		output = append(output, apiv1.Container{
 			Name:            fileTransfersContainerName,
 			Image:           fmt.Sprintf("%s:%s", i.PorklockImage, i.PorklockTag),
 			Command:         fileTransferCommand(job),
@@ -444,9 +475,11 @@ func (i *Internal) deploymentContainers(job *model.Job) []apiv1.Container {
 					},
 				},
 			},
-		},
-		i.defineAnalysisContainer(job),
+		})
 	}
+
+	output = append(output, i.defineAnalysisContainer(job))
+	return output
 }
 
 // getDeployment assembles and returns the Deployment for the VICE analysis. It does
@@ -513,7 +546,7 @@ func (i *Internal) getDeployment(job *model.Job) (*appsv1.Deployment, error) {
 				},
 				Spec: apiv1.PodSpec{
 					RestartPolicy:                apiv1.RestartPolicy("Always"),
-					Volumes:                      deploymentVolumes(job),
+					Volumes:                      i.deploymentVolumes(job),
 					InitContainers:               i.initContainers(job),
 					Containers:                   i.deploymentContainers(job),
 					AutomountServiceAccountToken: &autoMount,
