@@ -14,6 +14,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
+// One gibibyte.
+const gibibyte = 1024 * 1024 * 1024
+
 // analysisPorts returns a list of container ports needed by the VICE analysis.
 func analysisPorts(step *model.Step) []apiv1.ContainerPort {
 	ports := []apiv1.ContainerPort{}
@@ -109,6 +112,13 @@ func (i *Internal) viceProxyCommand(job *model.Job) []string {
 	return output
 }
 
+func cpuResourceRequest(job *model.Job) float32 {
+	if job.Steps[0].Component.Container.MinCPUCores != 0 {
+		return job.Steps[0].Component.Container.MinCPUCores
+	}
+	return 1
+}
+
 func cpuResourceLimit(job *model.Job) float32 {
 	if job.Steps[0].Component.Container.MaxCPUCores != 0 {
 		return job.Steps[0].Component.Container.MaxCPUCores
@@ -116,18 +126,25 @@ func cpuResourceLimit(job *model.Job) float32 {
 	return 4
 }
 
+func memResourceRequest(job *model.Job) int64 {
+	if job.Steps[0].Component.Container.MinMemoryLimit != 0 {
+		return job.Steps[0].Component.Container.MinMemoryLimit
+	}
+	return 2 * gibibyte
+}
+
 func memResourceLimit(job *model.Job) int64 {
 	if job.Steps[0].Component.Container.MemoryLimit != 0 {
 		return job.Steps[0].Component.Container.MemoryLimit
 	}
-	return 8589934592 // 8 GB in bytes
+	return 8 * gibibyte
 }
 
 var (
 	defaultCPUResourceRequest, _ = resourcev1.ParseQuantity("1000m")
 	defaultMemResourceRequest, _ = resourcev1.ParseQuantity("2Gi")
 	defaultCPUResourceLimit, _   = resourcev1.ParseQuantity("4000m")
-	defaultMemResourceLimit, _   = resourcev1.ParseQuantity("32Gi")
+	defaultMemResourceLimit, _   = resourcev1.ParseQuantity("8Gi")
 )
 
 // initContainers returns a []apiv1.Container used for the InitContainers in
@@ -209,6 +226,23 @@ func (i *Internal) defineAnalysisContainer(job *model.Job) apiv1.Container {
 		},
 	)
 
+	cpuRequest, err := resourcev1.ParseQuantity(fmt.Sprintf("%fm", cpuResourceRequest(job)*1000))
+	if err != nil {
+		log.Warn(err)
+		cpuRequest = defaultCPUResourceRequest
+	}
+
+	memRequest, err := resourcev1.ParseQuantity(fmt.Sprintf("%d", memResourceLimit(job)))
+	if err != nil {
+		log.Warn(err)
+		memRequest = defaultMemResourceRequest
+	}
+
+	requests := apiv1.ResourceList{
+		apiv1.ResourceCPU:    cpuRequest, // job contains # cores
+		apiv1.ResourceMemory: memRequest, // job ocntains # bytes mem
+	}
+
 	cpuLimit, err := resourcev1.ParseQuantity(fmt.Sprintf("%fm", cpuResourceLimit(job)*1000))
 	if err != nil {
 		log.Warn(err)
@@ -246,11 +280,8 @@ func (i *Internal) defineAnalysisContainer(job *model.Job) apiv1.Container {
 		ImagePullPolicy: apiv1.PullPolicy(apiv1.PullAlways),
 		Env:             analysisEnvironment,
 		Resources: apiv1.ResourceRequirements{
-			Limits: limits,
-			Requests: apiv1.ResourceList{
-				apiv1.ResourceCPU:    defaultCPUResourceRequest,
-				apiv1.ResourceMemory: defaultMemResourceRequest,
-			},
+			Limits:   limits,
+			Requests: requests,
 		},
 		VolumeMounts: []apiv1.VolumeMount{
 			{
