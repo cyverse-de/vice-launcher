@@ -140,9 +140,17 @@ func memResourceLimit(job *model.Job) int64 {
 	return 8 * gibibyte
 }
 
+func storageRequest(job *model.Job) int64 {
+	if job.Steps[0].Component.Container.MinDiskSpace != 0 {
+		return job.Steps[0].Component.Container.MinDiskSpace
+	}
+	return 16 * gibibyte
+}
+
 var (
 	defaultCPUResourceRequest, _ = resourcev1.ParseQuantity("1000m")
 	defaultMemResourceRequest, _ = resourcev1.ParseQuantity("2Gi")
+	defaultStorageRequest, _     = resourcev1.ParseQuantity("16Gi")
 	defaultCPUResourceLimit, _   = resourcev1.ParseQuantity("4000m")
 	defaultMemResourceLimit, _   = resourcev1.ParseQuantity("8Gi")
 )
@@ -232,15 +240,22 @@ func (i *Internal) defineAnalysisContainer(job *model.Job) apiv1.Container {
 		cpuRequest = defaultCPUResourceRequest
 	}
 
-	memRequest, err := resourcev1.ParseQuantity(fmt.Sprintf("%d", memResourceLimit(job)))
+	memRequest, err := resourcev1.ParseQuantity(fmt.Sprintf("%d", memResourceRequest(job)))
 	if err != nil {
 		log.Warn(err)
 		memRequest = defaultMemResourceRequest
 	}
 
+	storageRequest, err := resourcev1.ParseQuantity(fmt.Sprintf("%d", storageRequest(job)))
+	if err != nil {
+		log.Warn(err)
+		storageRequest = defaultStorageRequest
+	}
+
 	requests := apiv1.ResourceList{
-		apiv1.ResourceCPU:    cpuRequest, // job contains # cores
-		apiv1.ResourceMemory: memRequest, // job ocntains # bytes mem
+		apiv1.ResourceCPU:              cpuRequest,     // job contains # cores
+		apiv1.ResourceMemory:           memRequest,     // job contains # bytes mem
+		apiv1.ResourceEphemeralStorage: storageRequest, // job contains # bytes storage
 	}
 
 	cpuLimit, err := resourcev1.ParseQuantity(fmt.Sprintf("%fm", cpuResourceLimit(job)*1000))
