@@ -2,16 +2,13 @@ package internal
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/cyverse-de/app-exposer/apps"
 	"github.com/cyverse-de/app-exposer/common"
-	"github.com/gorilla/mux"
 	"github.com/gosimple/slug"
 	"github.com/lib/pq"
 	"github.com/pkg/errors"
@@ -20,6 +17,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
+
+	"github.com/labstack/echo/v4"
 )
 
 var log = common.Log
@@ -214,118 +213,91 @@ func (i *Internal) UpsertDeployment(job *model.Job) error {
 // VICELaunchApp is the HTTP handler that orchestrates the launching of a VICE analysis inside
 // the k8s cluster. This get passed to the router to be associated with a route. The Job
 // is passed in as the body of the request.
-func (i *Internal) VICELaunchApp(writer http.ResponseWriter, request *http.Request) {
-	job := &model.Job{}
+func (i *Internal) VICELaunchApp(c echo.Context) error {
+	var (
+		job *model.Job
+		err error
+	)
 
-	buf, err := ioutil.ReadAll(request.Body)
-	if err != nil {
-		common.Error(writer, err.Error(), http.StatusBadRequest)
-		return
-	}
+	job = &model.Job{}
 
-	if err = json.Unmarshal(buf, job); err != nil {
-		common.Error(writer, err.Error(), http.StatusBadRequest)
-		return
+	if err = c.Bind(job); err != nil {
+		return err
 	}
 
 	if status, err := i.validateJob(job); err != nil {
-		common.DetailedError(writer, err, status)
-		return
+		return &echo.HTTPError{
+			Code:     status,
+			Internal: err,
+		}
 	}
 
 	// Create the excludes file ConfigMap for the job.
 	if err = i.UpsertExcludesConfigMap(job); err != nil {
-		if err != nil {
-			common.Error(
-				writer,
-				err.Error(),
-				http.StatusInternalServerError,
-			)
-			return
-		}
+		return err
 	}
 
 	// Create the input path list config map
 	if err = i.UpsertInputPathListConfigMap(job); err != nil {
-		if err != nil {
-			common.Error(
-				writer,
-				err.Error(),
-				http.StatusInternalServerError,
-			)
-			return
-		}
+		return err
 	}
 
 	// Create the deployment for the job.
 	if err = i.UpsertDeployment(job); err != nil {
-		if err != nil {
-			common.Error(
-				writer,
-				err.Error(),
-				http.StatusInternalServerError,
-			)
-			return
-		}
+		return err
 	}
+
+	return nil
 }
 
 // VICETriggerDownloads handles requests to trigger file downloads.
-func (i *Internal) VICETriggerDownloads(writer http.ResponseWriter, request *http.Request) {
-	var err error
-	id := mux.Vars(request)["id"]
-	if err = i.doFileTransfer(id, downloadBasePath, downloadKind, true); err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-	}
+func (i *Internal) VICETriggerDownloads(c echo.Context) error {
+	return i.doFileTransfer(c.Param("id"), downloadBasePath, downloadKind, true)
 }
 
 // VICEAdminTriggerDownloads handles requests to trigger file downloads
 // without requiring user information in the request and also operates from
 // the analysis UUID rather than the external ID. For use with tools that
 // require the caller to have administrative privileges.
-func (i *Internal) VICEAdminTriggerDownloads(writer http.ResponseWriter, request *http.Request) {
+func (i *Internal) VICEAdminTriggerDownloads(c echo.Context) error {
 	var err error
 
-	analysisID := mux.Vars(request)["analysis-id"]
+	analysisID := c.Param("analysis-id")
 
 	externalID, err := i.getExternalIDByAnalysisID(analysisID)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusBadRequest)
-		return
+		return &echo.HTTPError{
+			Code:     http.StatusBadRequest,
+			Internal: err,
+		}
 	}
 
-	if err = i.doFileTransfer(externalID, downloadBasePath, downloadKind, true); err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-	}
+	return i.doFileTransfer(externalID, downloadBasePath, downloadKind, true)
 }
 
 // VICETriggerUploads handles requests to trigger file uploads.
-func (i *Internal) VICETriggerUploads(writer http.ResponseWriter, request *http.Request) {
-	var err error
-	id := mux.Vars(request)["id"]
-	if err = i.doFileTransfer(id, uploadBasePath, uploadKind, true); err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-	}
+func (i *Internal) VICETriggerUploads(c echo.Context) error {
+	return i.doFileTransfer(c.Param("id"), uploadBasePath, uploadKind, true)
 }
 
 // VICEAdminTriggerUploads handles requests to trigger file uploads without
 // requiring user information in the request, while also operating from the
 // analysis UUID rather than the external UUID. For use with tools that
 // require the caller to have administrative privileges.
-func (i *Internal) VICEAdminTriggerUploads(writer http.ResponseWriter, request *http.Request) {
+func (i *Internal) VICEAdminTriggerUploads(c echo.Context) error {
 	var err error
 
-	analysisID := mux.Vars(request)["analysis-id"]
+	analysisID := c.Param("analysis-id")
 
 	externalID, err := i.getExternalIDByAnalysisID(analysisID)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusBadRequest)
-		return
+		return &echo.HTTPError{
+			Code:     http.StatusBadRequest,
+			Internal: err,
+		}
 	}
 
-	if err = i.doFileTransfer(externalID, uploadBasePath, uploadKind, true); err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-	}
+	return i.doFileTransfer(externalID, uploadBasePath, uploadKind, true)
 }
 
 func (i *Internal) doExit(externalID string) error {
@@ -400,32 +372,27 @@ func (i *Internal) doExit(externalID string) error {
 // the external-id label to find all of the objects in the configured
 // namespace associated with the job. Deletes the following objects:
 // ingresses, services, deployments, and configmaps.
-func (i *Internal) VICEExit(writer http.ResponseWriter, request *http.Request) {
-	var err error
-
-	id := mux.Vars(request)["id"]
-
-	if err = i.doExit(id); err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-	}
+func (i *Internal) VICEExit(c echo.Context) error {
+	return i.doExit(c.Param("id"))
 }
 
 // VICEAdminExit terminates the VICE analysis based on the analysisID and
 // and should not require any user information to be provided. Otherwise, the
 // documentation for VICEExit applies here as well.
-func (i *Internal) VICEAdminExit(writer http.ResponseWriter, request *http.Request) {
+func (i *Internal) VICEAdminExit(c echo.Context) error {
 	var err error
 
-	analysisID := mux.Vars(request)["analysis-id"]
+	analysisID := c.Param("analysis-id")
 
 	externalID, err := i.getExternalIDByAnalysisID(analysisID)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusBadRequest)
+		return &echo.HTTPError{
+			Code:     http.StatusBadRequest,
+			Internal: err,
+		}
 	}
 
-	if err = i.doExit(externalID); err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-	}
+	return i.doExit(externalID)
 }
 
 func (i *Internal) getIDFromHost(host string) (string, error) {
@@ -450,19 +417,21 @@ func (i *Internal) getIDFromHost(host string) (string, error) {
 // This will return an overall status and status for the individual containers in
 // the app's pod. Uses the state of the readiness checks in K8s, along with the
 // existence of the various resources created for the app.
-func (i *Internal) VICEStatus(writer http.ResponseWriter, request *http.Request) {
+func (i *Internal) VICEStatus(c echo.Context) error {
 	var (
 		ingressExists bool
 		serviceExists bool
 		podReady      bool
 	)
 
-	host := mux.Vars(request)["host"]
+	host := c.Param("host")
 
 	id, err := i.getIDFromHost(host)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusNotFound)
-		return
+		return &echo.HTTPError{
+			Code:     http.StatusNotFound,
+			Internal: err,
+		}
 	}
 
 	// If getIDFromHost returns without an error, then the ingress exists
@@ -481,8 +450,7 @@ func (i *Internal) VICEStatus(writer http.ResponseWriter, request *http.Request)
 	svcclient := i.clientset.CoreV1().Services(i.ViceNamespace)
 	svclist, err := svcclient.List(listoptions)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 	if len(svclist.Items) > 0 {
 		serviceExists = true
@@ -492,8 +460,7 @@ func (i *Internal) VICEStatus(writer http.ResponseWriter, request *http.Request)
 	depclient := i.clientset.AppsV1().Deployments(i.ViceNamespace)
 	deplist, err := depclient.List(listoptions)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 	for _, dep := range deplist.Items {
 		if dep.Status.ReadyReplicas > 0 {
@@ -505,54 +472,48 @@ func (i *Internal) VICEStatus(writer http.ResponseWriter, request *http.Request)
 		"ready": ingressExists && serviceExists && podReady,
 	}
 
-	body, err := json.Marshal(data)
-	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	fmt.Fprintf(writer, string(body))
+	return c.JSON(http.StatusOK, data)
 }
 
 // VICESaveAndExit handles requests to save the output files in iRODS and then exit.
 // The exit portion will only occur if the save operation succeeds. The operation is
 // performed inside of a goroutine so that the caller isn't waiting for hours/days for
 // output file transfers to complete.
-func (i *Internal) VICESaveAndExit(writer http.ResponseWriter, request *http.Request) {
+func (i *Internal) VICESaveAndExit(c echo.Context) error {
 	log.Info("save and exit called")
 
 	// Since file transfers can take a while, we should do this asynchronously by default.
-	go func(writer http.ResponseWriter, request *http.Request) {
+	go func(c echo.Context) {
 		var err error
 
 		log.Info("calling doFileTransfer")
 
-		id := mux.Vars(request)["id"]
-
 		// Trigger a blocking output file transfer request.
-		if err = i.doFileTransfer(id, uploadBasePath, uploadKind, false); err != nil {
+		if err = i.doFileTransfer(c.Param("id"), uploadBasePath, uploadKind, false); err != nil {
 			log.Error(errors.Wrap(err, "error doing file transfer")) // Log but don't exit. Possible to cancel a job that hasn't started yet
 		}
 
 		log.Info("calling VICEExit")
 
-		i.VICEExit(writer, request)
+		i.VICEExit(c)
 
 		log.Info("after VICEExit")
-	}(writer, request)
+	}(c)
 
 	log.Info("leaving save and exit")
+
+	return nil
 }
 
 // VICEAdminSaveAndExit handles requests to save the output files in iRODS and
 // then exit. This version of the call operates based on the analysis ID and does
 // not require user information to be required by the caller. Otherwise, the docs
 // for the VICESaveAndExit function apply here as well.
-func (i *Internal) VICEAdminSaveAndExit(writer http.ResponseWriter, request *http.Request) {
+func (i *Internal) VICEAdminSaveAndExit(c echo.Context) error {
 	log.Info("admin save and exit called")
 
 	// Since file transfers can take a while, we should do this asynchronously by default.
-	go func(writer http.ResponseWriter, request *http.Request) {
+	go func(c echo.Context) {
 		var (
 			err        error
 			externalID string
@@ -560,10 +521,10 @@ func (i *Internal) VICEAdminSaveAndExit(writer http.ResponseWriter, request *htt
 
 		log.Debug("calling doFileTransfer")
 
-		analysisID := mux.Vars(request)["analysis-id"]
+		analysisID := c.Param("analysis-id")
 
 		if externalID, err = i.getExternalIDByAnalysisID(analysisID); err != nil {
-			common.Error(writer, err.Error(), http.StatusInternalServerError)
+			log.Error(err)
 			return
 		}
 
@@ -575,14 +536,14 @@ func (i *Internal) VICEAdminSaveAndExit(writer http.ResponseWriter, request *htt
 		log.Debug("calling VICEExit")
 
 		if err = i.doExit(externalID); err != nil {
-			common.Error(writer, err.Error(), http.StatusInternalServerError)
 			log.Error(err)
 		}
 
 		log.Debug("after VICEExit")
-	}(writer, request)
+	}(c)
 
 	log.Info("admin leaving save and exit")
+	return nil
 }
 
 const updateTimeLimitSQL = `
@@ -608,118 +569,108 @@ const getUserIDSQL = `
 `
 
 // VICETimeLimitUpdate handles requests to update the time limit on an already running VICE app.
-func (i *Internal) VICETimeLimitUpdate(writer http.ResponseWriter, request *http.Request) {
+func (i *Internal) VICETimeLimitUpdate(c echo.Context) error {
 	log.Info("update time limit called")
 
 	var (
-		err   error
-		id    string
-		users []string
-		user  string
-		found bool
+		err  error
+		id   string
+		user string
 	)
 
 	// user is required
-	if users, found = request.URL.Query()["user"]; !found {
-		common.Error(writer, "user is not set", http.StatusForbidden)
-		return
+	user = c.QueryParam("user")
+	if user == "" {
+		return &echo.HTTPError{
+			Code:     http.StatusForbidden,
+			Internal: errors.New("user is not set"),
+		}
 	}
-	user = users[0]
 
 	// id is required
-	if id, found = mux.Vars(request)["analysis-id"]; !found {
-		idErr := errors.New("id parameter is empty").Error()
-		common.Error(writer, idErr, http.StatusBadRequest)
+	id = c.Param("analysis-id")
+	if id == "" {
+		idErr := &echo.HTTPError{
+			Code:     http.StatusBadRequest,
+			Internal: errors.New("id parameter is empty"),
+		}
 		log.Error(idErr)
-		return
+		return idErr
 	}
 
 	outputMap, err := i.updateTimeLimit(user, id)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
 		log.Error(err)
-		return
+		return err
 	}
 
-	var outputJSON []byte
-	outputJSON, err = json.Marshal(outputMap)
-	if err != nil {
-		wrappedErr := errors.Wrapf(err, "error marshalling the JSON for the new time limit for analysis %s", id)
-		common.Error(writer, wrappedErr.Error(), http.StatusInternalServerError)
-		log.Error(wrappedErr)
-		return
-	}
+	return c.JSON(http.StatusOK, outputMap)
 
-	fmt.Fprint(writer, string(outputJSON))
 }
 
 // VICEAdminTimeLimitUpdate is basically the same as VICETimeLimitUpdate
 // except that it doesn't require user information in the request.
-func (i *Internal) VICEAdminTimeLimitUpdate(writer http.ResponseWriter, request *http.Request) {
+func (i *Internal) VICEAdminTimeLimitUpdate(c echo.Context) error {
 	var (
-		err   error
-		found bool
-		id    string
-		user  string
+		err  error
+		id   string
+		user string
 	)
 	// id is required
-	if id, found = mux.Vars(request)["analysis-id"]; !found {
-		common.Error(writer, errors.New("id parameter is empty").Error(), http.StatusBadRequest)
-		return
+	id = c.Param("analysis-id")
+	if id == "" {
+		return &echo.HTTPError{
+			Code:     http.StatusBadRequest,
+			Internal: errors.New("id parameter is empty"),
+		}
 	}
 
 	apps := apps.NewApps(i.db)
 
 	user, _, err = apps.GetUserByAnalysisID(id)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 
 	outputMap, err := i.updateTimeLimit(user, id)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 
-	var outputJSON []byte
-	outputJSON, err = json.Marshal(outputMap)
-	if err != nil {
-		common.Error(writer, errors.Wrapf(err, "error marshalling the JSON for the new time limit for analysis %s", id).Error(), http.StatusInternalServerError)
-		return
-	}
-
-	fmt.Fprint(writer, string(outputJSON))
+	return c.JSON(http.StatusOK, outputMap)
 }
 
 // VICEGetTimeLimit implements the handler for getting the current time limit from the database.
-func (i *Internal) VICEGetTimeLimit(writer http.ResponseWriter, request *http.Request) {
+func (i *Internal) VICEGetTimeLimit(c echo.Context) error {
 	log.Info("get time limit called")
 
 	var (
 		err        error
 		analysisID string
-		users      []string
 		user       string
 		userID     string
-		found      bool
 	)
 
 	// user is required
-	if users, found = request.URL.Query()["user"]; !found {
-		common.Error(writer, "user is not set", http.StatusForbidden)
-		return
+	user = c.QueryParam("user")
+	if user == "" {
+		return &echo.HTTPError{
+			Code:     http.StatusForbidden,
+			Internal: errors.New("user is not set"),
+		}
 	}
-	user = users[0]
 
 	if !strings.HasSuffix(user, "@iplantcollaborative.org") {
 		user = fmt.Sprintf("%s@iplantcollaborative.org", user)
 	}
 
 	// analysisID is required
-	if analysisID, found = mux.Vars(request)["analysis-id"]; !found {
-		common.Error(writer, errors.New("id parameter is empty").Error(), http.StatusBadRequest)
-		return
+	analysisID = c.Param("analysis-id")
+	if analysisID == "" {
+		return &echo.HTTPError{
+			Code:     http.StatusBadRequest,
+			Internal: errors.New("id parameter is empty"),
+		}
 	}
 
 	apps := apps.NewApps(i.db)
@@ -727,38 +678,32 @@ func (i *Internal) VICEGetTimeLimit(writer http.ResponseWriter, request *http.Re
 	// Could use this to get the username, but we need to not break other services.
 	_, userID, err = apps.GetUserByAnalysisID(analysisID)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 
 	outputMap, err := i.getTimeLimit(userID, analysisID)
 
-	var outputJSON []byte
-	outputJSON, err = json.Marshal(outputMap)
-	if err != nil {
-		common.Error(writer, errors.Wrapf(err, "error marshalling the JSON for the time limit for analysis %s", analysisID).Error(), http.StatusInternalServerError)
-		return
-	}
-
-	fmt.Fprint(writer, string(outputJSON))
+	return c.JSON(http.StatusOK, outputMap)
 }
 
 // VICEAdminGetTimeLimit is the same as VICEGetTimeLimit but doesn't require
 // any user information in the request.
-func (i *Internal) VICEAdminGetTimeLimit(writer http.ResponseWriter, request *http.Request) {
+func (i *Internal) VICEAdminGetTimeLimit(c echo.Context) error {
 	log.Info("get time limit called")
 
 	var (
 		err        error
 		analysisID string
 		userID     string
-		found      bool
 	)
 
 	// analysisID is required
-	if analysisID, found = mux.Vars(request)["analysis-id"]; !found {
-		common.Error(writer, errors.New("id parameter is empty").Error(), http.StatusBadRequest)
-		return
+	analysisID = c.Param("analysis-id")
+	if analysisID == "" {
+		return &echo.HTTPError{
+			Code:     http.StatusBadRequest,
+			Internal: errors.New("id parameter is empty"),
+		}
 	}
 
 	apps := apps.NewApps(i.db)
@@ -766,20 +711,15 @@ func (i *Internal) VICEAdminGetTimeLimit(writer http.ResponseWriter, request *ht
 	// Could use this to get the username, but we need to not break other services.
 	_, userID, err = apps.GetUserByAnalysisID(analysisID)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 
 	outputMap, err := i.getTimeLimit(userID, analysisID)
-
-	var outputJSON []byte
-	outputJSON, err = json.Marshal(outputMap)
 	if err != nil {
-		common.Error(writer, errors.Wrapf(err, "error marshalling the JSON for the time limit for analysis %s", analysisID).Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 
-	fmt.Fprint(writer, string(outputJSON))
+	return c.JSON(http.StatusOK, outputMap)
 }
 
 func (i *Internal) getTimeLimit(userID, id string) (map[string]string, error) {
@@ -839,36 +779,30 @@ func (i *Internal) updateTimeLimit(user, id string) (map[string]string, error) {
 
 // VICEAdminGetExternalID returns the external ID associated with the analysis ID.
 // There is only one external ID for each VICE analysis, unlike non-VICE analyses.
-func (i *Internal) VICEAdminGetExternalID(writer http.ResponseWriter, request *http.Request) {
+func (i *Internal) VICEAdminGetExternalID(c echo.Context) error {
 	var (
 		err        error
 		analysisID string
 		externalID string
-		found      bool
-		outputJSON []byte
 	)
 
 	// analysisID is required
-	if analysisID, found = mux.Vars(request)["analysis-id"]; !found {
-		common.Error(writer, errors.New("id parameter is empty").Error(), http.StatusBadRequest)
-		return
+	analysisID = c.Param("analysis-id")
+	if analysisID == "" {
+		return &echo.HTTPError{
+			Code:     http.StatusBadRequest,
+			Internal: errors.New("id parameter is empty"),
+		}
 	}
 
 	externalID, err = i.getExternalIDByAnalysisID(analysisID)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 
 	outputMap := map[string]string{
 		"externalID": externalID,
 	}
 
-	outputJSON, err = json.Marshal(outputMap)
-	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	fmt.Fprint(writer, string(outputJSON))
+	return c.JSON(http.StatusOK, outputMap)
 }
