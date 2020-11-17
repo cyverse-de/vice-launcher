@@ -1,7 +1,6 @@
 package internal
 
 import (
-	"database/sql"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,6 +9,7 @@ import (
 	"github.com/cyverse-de/app-exposer/apps"
 	"github.com/cyverse-de/app-exposer/common"
 	"github.com/gosimple/slug"
+	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 	"github.com/pkg/errors"
 
@@ -54,12 +54,12 @@ type Init struct {
 type Internal struct {
 	Init
 	clientset       kubernetes.Interface
-	db              *sql.DB
+	db              *sqlx.DB
 	statusPublisher AnalysisStatusPublisher
 }
 
 // New creates a new *Internal.
-func New(init *Init, db *sql.DB, clientset kubernetes.Interface) *Internal {
+func New(init *Init, db *sqlx.DB, clientset kubernetes.Interface) *Internal {
 	return &Internal{
 		Init:      *init,
 		db:        db,
