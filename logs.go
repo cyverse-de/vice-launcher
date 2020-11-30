@@ -11,8 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cyverse-de/app-exposer/common"
-	"github.com/gorilla/mux"
+	"github.com/labstack/echo/v4"
 	"github.com/pkg/errors"
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -103,7 +102,7 @@ type VICELogEntry struct {
 //                display timestamps at the beginning of each log line.
 //   container - String containing the name of the container to display logs from. Defaults
 //               the value 'analysis', since this is VICE-specific.
-func (i *Internal) VICELogs(writer http.ResponseWriter, request *http.Request) {
+func (i *Internal) VICELogs(c echo.Context) error {
 	var (
 		err        error
 		id         string
@@ -114,66 +113,57 @@ func (i *Internal) VICELogs(writer http.ResponseWriter, request *http.Request) {
 		previous   bool
 		tailLines  int64
 		timestamps bool
-		found      bool
-		users      []string
 		user       string
 		logOpts    *apiv1.PodLogOptions
 	)
 
 	// id is required
-	if id, found = mux.Vars(request)["analysis-id"]; !found {
-		common.Error(writer, errors.New("id parameter is empty").Error(), http.StatusBadRequest)
-		return
+	id = c.Param("analysis-id")
+	if id == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "id parameter is empty")
 	}
 
 	// user is required
-	if users, found = request.URL.Query()["user"]; !found {
-		common.Error(writer, "user is not set", http.StatusForbidden)
-		return
+	user = c.QueryParam("user")
+	if user == "" {
+		return echo.NewHTTPError(http.StatusForbidden, "user is not set")
 	}
-	user = users[0]
 
 	externalIDs, err := i.getExternalIDs(user, id)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
 	if len(externalIDs) < 1 {
-		common.Error(writer, fmt.Errorf("no external-ids found for analysis-id %s", id).Error(), http.StatusInternalServerError)
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("no external-ids found for analysis-id %s", id))
 	}
 
 	//Just use the first external-id for now.
 	externalID := externalIDs[0]
 
 	logOpts = &apiv1.PodLogOptions{}
-	queryParams := request.URL.Query()
 
 	// previous is optional
-	if queryParams.Get("previous") != "" {
-		if previous, err = strconv.ParseBool(queryParams.Get("previous")); err != nil {
-			common.Error(writer, err.Error(), http.StatusBadRequest)
-			return
+	if c.QueryParam("previous") != "" {
+		if previous, err = strconv.ParseBool(c.QueryParam("previous")); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 
 		logOpts.Previous = previous
 	}
 
 	// since is optional
-	if queryParams.Get("since") != "" {
-		if since, err = strconv.ParseInt(queryParams.Get("since"), 10, 64); err != nil {
-			common.Error(writer, err.Error(), http.StatusBadRequest)
-			return
+	if c.QueryParam("since") != "" {
+		if since, err = strconv.ParseInt(c.QueryParam("since"), 10, 64); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 
 		logOpts.SinceSeconds = &since
 	}
 
-	if queryParams.Get("since-time") != "" {
-		if sinceTime, err = strconv.ParseInt(queryParams.Get("since-time"), 10, 64); err != nil {
-			common.Error(writer, err.Error(), http.StatusBadRequest)
-			return
+	if c.QueryParam("since-time") != "" {
+		if sinceTime, err = strconv.ParseInt(c.QueryParam("since-time"), 10, 64); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 
 		convertedSinceTime := metav1.Unix(sinceTime, 0)
@@ -181,10 +171,9 @@ func (i *Internal) VICELogs(writer http.ResponseWriter, request *http.Request) {
 	}
 
 	// tail-lines is optional
-	if queryParams.Get("tail-lines") != "" {
-		if tailLines, err = strconv.ParseInt(queryParams.Get("tail-lines"), 10, 64); err != nil {
-			common.Error(writer, err.Error(), http.StatusBadRequest)
-			return
+	if c.QueryParam("tail-lines") != "" {
+		if tailLines, err = strconv.ParseInt(c.QueryParam("tail-lines"), 10, 64); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 
 		logOpts.TailLines = &tailLines
@@ -195,18 +184,17 @@ func (i *Internal) VICELogs(writer http.ResponseWriter, request *http.Request) {
 	logOpts.Follow = false
 
 	// timestamps is optional
-	if queryParams.Get("timestamps") != "" {
-		if timestamps, err = strconv.ParseBool(queryParams.Get("timestamps")); err != nil {
-			common.Error(writer, err.Error(), http.StatusBadRequest)
-			return
+	if c.QueryParam("timestamps") != "" {
+		if timestamps, err = strconv.ParseBool(c.QueryParam("timestamps")); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 
 		logOpts.Timestamps = timestamps
 	}
 
 	// container is optional, but should have a default value of "analysis"
-	if queryParams.Get("container") != "" {
-		container = queryParams.Get("container")
+	if c.QueryParam("container") != "" {
+		container = c.QueryParam("container")
 	} else {
 		container = "analysis"
 	}
@@ -217,17 +205,11 @@ func (i *Internal) VICELogs(writer http.ResponseWriter, request *http.Request) {
 	// but we're only going to use the first pod for now.
 	podList, err := i.getPods(externalID)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 
 	if len(podList) < 1 {
-		common.Error(
-			writer,
-			fmt.Errorf("no pods found for analysis %s with external ID %s", id, externalID).Error(),
-			http.StatusInternalServerError,
-		)
-		return
+		return fmt.Errorf("no pods found for analysis %s with external ID %s", id, externalID)
 	}
 
 	podName = podList[0].Name
@@ -235,34 +217,27 @@ func (i *Internal) VICELogs(writer http.ResponseWriter, request *http.Request) {
 	// Finally, actually get the logs and write the response out
 	podLogs := i.clientset.CoreV1().Pods(i.ViceNamespace).GetLogs(podName, logOpts)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 
 	logReadCloser, err := podLogs.Stream()
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 	defer logReadCloser.Close()
 
 	bodyBytes, err := ioutil.ReadAll(logReadCloser)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 
 	bodyLines := strings.Split(string(bodyBytes), "\n")
 	newSinceTime := fmt.Sprintf("%d", time.Now().Unix())
 
-	if err = json.NewEncoder(writer).Encode(
-		&VICELogEntry{
-			SinceTime: newSinceTime,
-			Lines:     bodyLines,
-		},
-	); err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-	}
+	return c.JSON(http.StatusOK, &VICELogEntry{
+		SinceTime: newSinceTime,
+		Lines:     bodyLines,
+	})
 
 }
 
@@ -296,26 +271,21 @@ func (i *Internal) getPods(externalID string) ([]retPod, error) {
 
 // VICEPods lists the k8s pods associated with the provided external-id. For now
 // just returns pod info in the format `{"pods" : [{}]}`
-func (i *Internal) VICEPods(writer http.ResponseWriter, request *http.Request) {
-	analysisID := mux.Vars(request)["analysis-id"]
-	users, found := request.URL.Query()["user"]
+func (i *Internal) VICEPods(c echo.Context) error {
+	analysisID := c.Param("analysis-id")
+	user := c.QueryParam("user")
 
-	if !found || len(users) < 1 {
-		common.Error(writer, "user not set", http.StatusForbidden)
-		return
+	if user == "" {
+		return echo.NewHTTPError(http.StatusForbidden, "user not set")
 	}
-
-	user := users[0]
 
 	externalIDs, err := i.getExternalIDs(user, analysisID)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 
 	if len(externalIDs) == 0 {
-		common.Error(writer, fmt.Errorf("no external-id found for analysis-id %s", analysisID).Error(), http.StatusInternalServerError)
-		return
+		return fmt.Errorf("no external-id found for analysis-id %s", analysisID)
 	}
 
 	// For now, just use the first external ID
@@ -323,16 +293,10 @@ func (i *Internal) VICEPods(writer http.ResponseWriter, request *http.Request) {
 
 	returnedPods, err := i.getPods(externalID)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 
-	if err = json.NewEncoder(writer).Encode(
-		map[string][]retPod{
-			"pods": returnedPods,
-		},
-	); err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-	}
-
+	return c.JSON(http.StatusOK, map[string][]retPod{
+		"pods": returnedPods,
+	})
 }

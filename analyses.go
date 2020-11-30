@@ -1,31 +1,26 @@
 package internal
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 
 	"github.com/cyverse-de/app-exposer/apps"
-	"github.com/cyverse-de/app-exposer/common"
+	"github.com/labstack/echo/v4"
 )
 
 // GetAsyncData returns data that is generately asynchronously from the job launch.
-func (i *Internal) GetAsyncData(writer http.ResponseWriter, request *http.Request) {
-	externalIDs, found := request.URL.Query()["external-id"]
-	if !found || len(externalIDs) < 1 {
-		common.Error(writer, "external-id not set", http.StatusBadRequest)
-		return
+func (i *Internal) GetAsyncData(c echo.Context) error {
+	externalID := c.QueryParam("external-id")
+	if externalID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "external-id not set")
 	}
 
-	externalID := externalIDs[0]
-
-	apps := apps.NewApps(i.db)
+	apps := apps.NewApps(i.db, i.UserSuffix)
 
 	analysisID, err := apps.GetAnalysisIDByExternalID(externalID)
 	if err != nil {
 		log.Error(err)
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 
 	filter := map[string]string{
@@ -34,13 +29,11 @@ func (i *Internal) GetAsyncData(writer http.ResponseWriter, request *http.Reques
 
 	deployments, err := i.deploymentList(i.ViceNamespace, filter)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 
 	if len(deployments.Items) < 1 {
-		common.Error(writer, "no deployments found", http.StatusInternalServerError)
-		return
+		return echo.NewHTTPError(http.StatusNotFound, "no deployments found.")
 	}
 
 	labels := deployments.Items[0].GetLabels()
@@ -50,29 +43,21 @@ func (i *Internal) GetAsyncData(writer http.ResponseWriter, request *http.Reques
 	ipAddr, err := apps.GetUserIP(userID)
 	if err != nil {
 		log.Error(err)
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 
-	buf, err := json.Marshal(map[string]string{
+	return c.JSON(http.StatusOK, map[string]string{
 		"analysisID": analysisID,
 		"subdomain":  subdomain,
 		"ipAddr":     ipAddr,
 	})
-	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	writer.Header().Add("Content-Type", "application/json")
-	fmt.Fprintf(writer, string(buf))
 }
 
 // getExternalID returns the externalID associated with the analysisID. For now,
 // only returns the first result, since VICE analyses only have a single step in
 // the database.
 func (i *Internal) getExternalIDByAnalysisID(analysisID string) (string, error) {
-	apps := apps.NewApps(i.db)
+	apps := apps.NewApps(i.db, i.UserSuffix)
 	username, _, err := apps.GetUserByAnalysisID(analysisID)
 	if err != nil {
 		return "", err

@@ -1,14 +1,13 @@
 package internal
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
 
 	"github.com/cyverse-de/app-exposer/apps"
-	"github.com/cyverse-de/app-exposer/common"
+	"github.com/labstack/echo/v4"
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -321,27 +320,17 @@ func (i *Internal) getFilteredDeployments(filter map[string]string) ([]Deploymen
 }
 
 // FilterableDeployments lists all of the deployments.
-func (i *Internal) FilterableDeployments(writer http.ResponseWriter, request *http.Request) {
-	defer request.Body.Close()
-
-	filter := filterMap(request.URL.Query())
+func (i *Internal) FilterableDeployments(c echo.Context) error {
+	filter := filterMap(c.Request().URL.Query())
 
 	deployments, err := i.getFilteredDeployments(filter)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 
-	buf, err := json.Marshal(map[string][]DeploymentInfo{
+	return c.JSON(http.StatusOK, map[string][]DeploymentInfo{
 		"deployments": deployments,
 	})
-	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	writer.Header().Add("Content-Type", "application/json")
-	fmt.Fprintf(writer, string(buf))
 }
 
 func (i *Internal) getFilteredPods(filter map[string]string) ([]PodInfo, error) {
@@ -361,27 +350,17 @@ func (i *Internal) getFilteredPods(filter map[string]string) ([]PodInfo, error) 
 }
 
 // FilterablePods returns a listing of the pods in a VICE analysis.
-func (i *Internal) FilterablePods(writer http.ResponseWriter, request *http.Request) {
-	defer request.Body.Close()
-
-	filter := filterMap(request.URL.Query())
+func (i *Internal) FilterablePods(c echo.Context) error {
+	filter := filterMap(c.Request().URL.Query())
 
 	pods, err := i.getFilteredPods(filter)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 
-	buf, err := json.Marshal(map[string][]PodInfo{
+	return c.JSON(http.StatusOK, map[string][]PodInfo{
 		"pods": pods,
 	})
-	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	writer.Header().Add("Content-Type", "application/json")
-	fmt.Fprintf(writer, string(buf))
 }
 
 func (i *Internal) getFilteredConfigMaps(filter map[string]string) ([]ConfigMapInfo, error) {
@@ -401,27 +380,17 @@ func (i *Internal) getFilteredConfigMaps(filter map[string]string) ([]ConfigMapI
 }
 
 // FilterableConfigMaps lists configmaps in use by VICE apps.
-func (i *Internal) FilterableConfigMaps(writer http.ResponseWriter, request *http.Request) {
-	defer request.Body.Close()
-
-	filter := filterMap(request.URL.Query())
+func (i *Internal) FilterableConfigMaps(c echo.Context) error {
+	filter := filterMap(c.Request().URL.Query())
 
 	cms, err := i.getFilteredConfigMaps(filter)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 
-	buf, err := json.Marshal(map[string][]ConfigMapInfo{
+	return c.JSON(http.StatusOK, map[string][]ConfigMapInfo{
 		"configmaps": cms,
 	})
-	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	writer.Header().Add("Content-Type", "application/json")
-	fmt.Fprintf(writer, string(buf))
 }
 
 func (i *Internal) getFilteredServices(filter map[string]string) ([]ServiceInfo, error) {
@@ -441,27 +410,17 @@ func (i *Internal) getFilteredServices(filter map[string]string) ([]ServiceInfo,
 }
 
 // FilterableServices lists services in use by VICE apps.
-func (i *Internal) FilterableServices(writer http.ResponseWriter, request *http.Request) {
-	defer request.Body.Close()
-
-	filter := filterMap(request.URL.Query())
+func (i *Internal) FilterableServices(c echo.Context) error {
+	filter := filterMap(c.Request().URL.Query())
 
 	svcs, err := i.getFilteredServices(filter)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 
-	buf, err := json.Marshal(map[string][]ServiceInfo{
+	return c.JSON(http.StatusOK, map[string][]ServiceInfo{
 		"services": svcs,
 	})
-	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	writer.Header().Add("Content-Type", "application/json")
-	fmt.Fprintf(writer, string(buf))
 }
 
 func (i *Internal) getFilteredIngresses(filter map[string]string) ([]IngressInfo, error) {
@@ -481,27 +440,17 @@ func (i *Internal) getFilteredIngresses(filter map[string]string) ([]IngressInfo
 }
 
 //FilterableIngresses lists ingresses in use by VICE apps.
-func (i *Internal) FilterableIngresses(writer http.ResponseWriter, request *http.Request) {
-	defer request.Body.Close()
-
-	filter := filterMap(request.URL.Query())
+func (i *Internal) FilterableIngresses(c echo.Context) error {
+	filter := filterMap(c.Request().URL.Query())
 
 	ingresses, err := i.getFilteredIngresses(filter)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 
-	buf, err := json.Marshal(map[string][]IngressInfo{
+	return c.JSON(http.StatusOK, map[string][]IngressInfo{
 		"ingresses": ingresses,
 	})
-	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	writer.Header().Add("Content-Type", "application/json")
-	fmt.Fprintf(writer, string(buf))
 }
 
 // ResourceInfo contains all of the k8s resource information about a running VICE analysis
@@ -515,55 +464,41 @@ type ResourceInfo struct {
 }
 
 // FilterableResources returns all of the k8s resources associated with a VICE analysis.
-func (i *Internal) FilterableResources(writer http.ResponseWriter, request *http.Request) {
-	defer request.Body.Close()
-
-	filter := filterMap(request.URL.Query())
+func (i *Internal) FilterableResources(c echo.Context) error {
+	filter := filterMap(c.Request().URL.Query())
 
 	deployments, err := i.getFilteredDeployments(filter)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 
 	pods, err := i.getFilteredPods(filter)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 
 	cms, err := i.getFilteredConfigMaps(filter)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 
 	svcs, err := i.getFilteredServices(filter)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 
 	ingresses, err := i.getFilteredIngresses(filter)
 	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 
-	buf, err := json.Marshal(ResourceInfo{
+	return c.JSON(http.StatusOK, ResourceInfo{
 		Deployments: deployments,
 		Pods:        pods,
 		ConfigMaps:  cms,
 		Services:    svcs,
 		Ingresses:   ingresses,
 	})
-	if err != nil {
-		common.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	writer.Header().Add("Content-Type", "application/json")
-	fmt.Fprintf(writer, string(buf))
 }
 
 func populateAnalysisID(a *apps.Apps, existingLabels map[string]string) (map[string]string, error) {
@@ -612,7 +547,7 @@ func (i *Internal) relabelDeployments() []error {
 	filter := map[string]string{} // Empty on purpose. Only filter based on interactive label.
 	errors := []error{}
 
-	a := apps.NewApps(i.db)
+	a := apps.NewApps(i.db, i.UserSuffix)
 
 	deployments, err := i.deploymentList(i.ViceNamespace, filter)
 	if err != nil {
@@ -649,7 +584,7 @@ func (i *Internal) relabelConfigMaps() []error {
 	filter := map[string]string{} // Empty on purpose. Only filter based on interactive label.
 	errors := []error{}
 
-	a := apps.NewApps(i.db)
+	a := apps.NewApps(i.db, i.UserSuffix)
 
 	cms, err := i.configmapsList(i.ViceNamespace, filter)
 	if err != nil {
@@ -686,7 +621,7 @@ func (i *Internal) relabelServices() []error {
 	filter := map[string]string{} // Empty on purpose. Only filter based on interactive label.
 	errors := []error{}
 
-	a := apps.NewApps(i.db)
+	a := apps.NewApps(i.db, i.UserSuffix)
 
 	svcs, err := i.serviceList(i.ViceNamespace, filter)
 	if err != nil {
@@ -723,7 +658,7 @@ func (i *Internal) relabelIngresses() []error {
 	filter := map[string]string{} // Empty on purpose. Only filter based on interactive label.
 	errors := []error{}
 
-	a := apps.NewApps(i.db)
+	a := apps.NewApps(i.db, i.UserSuffix)
 
 	ingresses, err := i.ingressList(i.ViceNamespace, filter)
 	if err != nil {
@@ -795,7 +730,7 @@ func (i *Internal) ApplyAsyncLabels() []error {
 
 // ApplyAsyncLabelsHandler is the http handler for triggering the application
 // of labels on running VICE analyses.
-func (i *Internal) ApplyAsyncLabelsHandler(writer http.ResponseWriter, request *http.Request) {
+func (i *Internal) ApplyAsyncLabelsHandler(c echo.Context) error {
 	errs := i.ApplyAsyncLabels()
 
 	if len(errs) > 0 {
@@ -805,8 +740,12 @@ func (i *Internal) ApplyAsyncLabelsHandler(writer http.ResponseWriter, request *
 			fmt.Fprintf(&errMsg, "%s\n", err.Error())
 		}
 
-		common.Error(writer, errMsg.String(), http.StatusInternalServerError)
+		c.String(http.StatusInternalServerError, errMsg.String())
+	} else {
+		c.NoContent(http.StatusOK)
 	}
+
+	return nil
 }
 
 // GetAsyncData returns the data that would be applied as labels as a

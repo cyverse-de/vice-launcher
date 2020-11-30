@@ -49,7 +49,7 @@ func (i *Internal) countJobsForUser(username string) (int, error) {
 	}
 
 	countedDeployments := []v1.Deployment{}
-	a := apps.NewApps(i.db)
+	a := apps.NewApps(i.db, i.UserSuffix)
 
 	for _, deployment := range deplist.Items {
 		var (
