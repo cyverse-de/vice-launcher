@@ -226,10 +226,7 @@ func (i *Internal) VICELaunchApp(c echo.Context) error {
 	}
 
 	if status, err := i.validateJob(job); err != nil {
-		return &echo.HTTPError{
-			Code:     status,
-			Internal: err,
-		}
+		return echo.NewHTTPError(status, err.Error())
 	}
 
 	// Create the excludes file ConfigMap for the job.
@@ -266,10 +263,7 @@ func (i *Internal) VICEAdminTriggerDownloads(c echo.Context) error {
 
 	externalID, err := i.getExternalIDByAnalysisID(analysisID)
 	if err != nil {
-		return &echo.HTTPError{
-			Code:     http.StatusBadRequest,
-			Internal: err,
-		}
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	return i.doFileTransfer(externalID, downloadBasePath, downloadKind, true)
@@ -291,10 +285,7 @@ func (i *Internal) VICEAdminTriggerUploads(c echo.Context) error {
 
 	externalID, err := i.getExternalIDByAnalysisID(analysisID)
 	if err != nil {
-		return &echo.HTTPError{
-			Code:     http.StatusBadRequest,
-			Internal: err,
-		}
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	return i.doFileTransfer(externalID, uploadBasePath, uploadKind, true)
@@ -386,10 +377,7 @@ func (i *Internal) VICEAdminExit(c echo.Context) error {
 
 	externalID, err := i.getExternalIDByAnalysisID(analysisID)
 	if err != nil {
-		return &echo.HTTPError{
-			Code:     http.StatusBadRequest,
-			Internal: err,
-		}
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	return i.doExit(externalID)
@@ -428,10 +416,7 @@ func (i *Internal) VICEStatus(c echo.Context) error {
 
 	id, err := i.getIDFromHost(host)
 	if err != nil {
-		return &echo.HTTPError{
-			Code:     http.StatusNotFound,
-			Internal: err,
-		}
+		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
 
 	// If getIDFromHost returns without an error, then the ingress exists
@@ -581,19 +566,13 @@ func (i *Internal) VICETimeLimitUpdate(c echo.Context) error {
 	// user is required
 	user = c.QueryParam("user")
 	if user == "" {
-		return &echo.HTTPError{
-			Code:     http.StatusForbidden,
-			Internal: errors.New("user is not set"),
-		}
+		return echo.NewHTTPError(http.StatusForbidden, "user is not set")
 	}
 
 	// id is required
 	id = c.Param("analysis-id")
 	if id == "" {
-		idErr := &echo.HTTPError{
-			Code:     http.StatusBadRequest,
-			Internal: errors.New("id parameter is empty"),
-		}
+		idErr := echo.NewHTTPError(http.StatusBadRequest, "id parameter is empty")
 		log.Error(idErr)
 		return idErr
 	}
@@ -619,10 +598,7 @@ func (i *Internal) VICEAdminTimeLimitUpdate(c echo.Context) error {
 	// id is required
 	id = c.Param("analysis-id")
 	if id == "" {
-		return &echo.HTTPError{
-			Code:     http.StatusBadRequest,
-			Internal: errors.New("id parameter is empty"),
-		}
+		return echo.NewHTTPError(http.StatusBadRequest, "id parameter is empty")
 	}
 
 	apps := apps.NewApps(i.db)
@@ -654,10 +630,7 @@ func (i *Internal) VICEGetTimeLimit(c echo.Context) error {
 	// user is required
 	user = c.QueryParam("user")
 	if user == "" {
-		return &echo.HTTPError{
-			Code:     http.StatusForbidden,
-			Internal: errors.New("user is not set"),
-		}
+		return echo.NewHTTPError(http.StatusForbidden, "user is not set")
 	}
 
 	if !strings.HasSuffix(user, "@iplantcollaborative.org") {
@@ -667,10 +640,7 @@ func (i *Internal) VICEGetTimeLimit(c echo.Context) error {
 	// analysisID is required
 	analysisID = c.Param("analysis-id")
 	if analysisID == "" {
-		return &echo.HTTPError{
-			Code:     http.StatusBadRequest,
-			Internal: errors.New("id parameter is empty"),
-		}
+		return echo.NewHTTPError(http.StatusBadRequest, "id parameter is empty")
 	}
 
 	apps := apps.NewApps(i.db)
@@ -700,10 +670,7 @@ func (i *Internal) VICEAdminGetTimeLimit(c echo.Context) error {
 	// analysisID is required
 	analysisID = c.Param("analysis-id")
 	if analysisID == "" {
-		return &echo.HTTPError{
-			Code:     http.StatusBadRequest,
-			Internal: errors.New("id parameter is empty"),
-		}
+		return echo.NewHTTPError(http.StatusBadRequest, "id parameter is empty")
 	}
 
 	apps := apps.NewApps(i.db)
@@ -789,10 +756,7 @@ func (i *Internal) VICEAdminGetExternalID(c echo.Context) error {
 	// analysisID is required
 	analysisID = c.Param("analysis-id")
 	if analysisID == "" {
-		return &echo.HTTPError{
-			Code:     http.StatusBadRequest,
-			Internal: errors.New("id parameter is empty"),
-		}
+		return echo.NewHTTPError(http.StatusBadRequest, "id parameter is empty")
 	}
 
 	externalID, err = i.getExternalIDByAnalysisID(analysisID)
