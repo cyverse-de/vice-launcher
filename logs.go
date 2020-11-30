@@ -120,34 +120,22 @@ func (i *Internal) VICELogs(c echo.Context) error {
 	// id is required
 	id = c.Param("analysis-id")
 	if id == "" {
-		return &echo.HTTPError{
-			Code:     http.StatusBadRequest,
-			Internal: errors.New("id parameter is empty"),
-		}
+		return echo.NewHTTPError(http.StatusBadRequest, "id parameter is empty")
 	}
 
 	// user is required
 	user = c.QueryParam("user")
 	if user == "" {
-		return &echo.HTTPError{
-			Code:     http.StatusForbidden,
-			Internal: errors.New("user is not set"),
-		}
+		return echo.NewHTTPError(http.StatusForbidden, "user is not set")
 	}
 
 	externalIDs, err := i.getExternalIDs(user, id)
 	if err != nil {
-		return &echo.HTTPError{
-			Code:     http.StatusInternalServerError,
-			Internal: err,
-		}
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
 	if len(externalIDs) < 1 {
-		return &echo.HTTPError{
-			Code:     http.StatusInternalServerError,
-			Internal: fmt.Errorf("no external-ids found for analysis-id %s", id),
-		}
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("no external-ids found for analysis-id %s", id))
 	}
 
 	//Just use the first external-id for now.
@@ -158,10 +146,7 @@ func (i *Internal) VICELogs(c echo.Context) error {
 	// previous is optional
 	if c.QueryParam("previous") != "" {
 		if previous, err = strconv.ParseBool(c.QueryParam("previous")); err != nil {
-			return &echo.HTTPError{
-				Code:     http.StatusBadRequest,
-				Internal: err,
-			}
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 
 		logOpts.Previous = previous
@@ -170,10 +155,7 @@ func (i *Internal) VICELogs(c echo.Context) error {
 	// since is optional
 	if c.QueryParam("since") != "" {
 		if since, err = strconv.ParseInt(c.QueryParam("since"), 10, 64); err != nil {
-			return &echo.HTTPError{
-				Code:     http.StatusBadRequest,
-				Internal: err,
-			}
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 
 		logOpts.SinceSeconds = &since
@@ -181,10 +163,7 @@ func (i *Internal) VICELogs(c echo.Context) error {
 
 	if c.QueryParam("since-time") != "" {
 		if sinceTime, err = strconv.ParseInt(c.QueryParam("since-time"), 10, 64); err != nil {
-			return &echo.HTTPError{
-				Code:     http.StatusBadRequest,
-				Internal: err,
-			}
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 
 		convertedSinceTime := metav1.Unix(sinceTime, 0)
@@ -194,10 +173,7 @@ func (i *Internal) VICELogs(c echo.Context) error {
 	// tail-lines is optional
 	if c.QueryParam("tail-lines") != "" {
 		if tailLines, err = strconv.ParseInt(c.QueryParam("tail-lines"), 10, 64); err != nil {
-			return &echo.HTTPError{
-				Code:     http.StatusBadRequest,
-				Internal: err,
-			}
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 
 		logOpts.TailLines = &tailLines
@@ -210,10 +186,7 @@ func (i *Internal) VICELogs(c echo.Context) error {
 	// timestamps is optional
 	if c.QueryParam("timestamps") != "" {
 		if timestamps, err = strconv.ParseBool(c.QueryParam("timestamps")); err != nil {
-			return &echo.HTTPError{
-				Code:     http.StatusBadRequest,
-				Internal: err,
-			}
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 
 		logOpts.Timestamps = timestamps
@@ -303,10 +276,7 @@ func (i *Internal) VICEPods(c echo.Context) error {
 	user := c.QueryParam("user")
 
 	if user == "" {
-		return &echo.HTTPError{
-			Code:     http.StatusForbidden,
-			Internal: errors.New("user not set"),
-		}
+		return echo.NewHTTPError(http.StatusForbidden, "user not set")
 	}
 
 	externalIDs, err := i.getExternalIDs(user, analysisID)
