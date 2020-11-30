@@ -6,17 +6,13 @@ import (
 
 	"github.com/cyverse-de/app-exposer/apps"
 	"github.com/labstack/echo/v4"
-	"github.com/pkg/errors"
 )
 
 // GetAsyncData returns data that is generately asynchronously from the job launch.
 func (i *Internal) GetAsyncData(c echo.Context) error {
 	externalID := c.QueryParam("external-id")
 	if externalID == "" {
-		return &echo.HTTPError{
-			Code:     http.StatusBadRequest,
-			Internal: errors.New("external-id not set"),
-		}
+		return echo.NewHTTPError(http.StatusBadRequest, "external-id not set")
 	}
 
 	apps := apps.NewApps(i.db)
@@ -37,12 +33,7 @@ func (i *Internal) GetAsyncData(c echo.Context) error {
 	}
 
 	if len(deployments.Items) < 1 {
-		msg := "no deployments found."
-		return &echo.HTTPError{
-			Code:     http.StatusNotFound,
-			Internal: errors.New(msg),
-			Message:  msg,
-		}
+		return echo.NewHTTPError(http.StatusNotFound, "no deployments found.")
 	}
 
 	labels := deployments.Items[0].GetLabels()
