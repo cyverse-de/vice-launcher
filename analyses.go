@@ -37,7 +37,12 @@ func (i *Internal) GetAsyncData(c echo.Context) error {
 	}
 
 	if len(deployments.Items) < 1 {
-		return errors.New("no deployments found")
+		msg := "no deployments found."
+		return &echo.HTTPError{
+			Code:     http.StatusNotFound,
+			Internal: errors.New(msg),
+			Message:  msg,
+		}
 	}
 
 	labels := deployments.Items[0].GetLabels()
