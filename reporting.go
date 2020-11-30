@@ -547,7 +547,7 @@ func (i *Internal) relabelDeployments() []error {
 	filter := map[string]string{} // Empty on purpose. Only filter based on interactive label.
 	errors := []error{}
 
-	a := apps.NewApps(i.db)
+	a := apps.NewApps(i.db, i.UserSuffix)
 
 	deployments, err := i.deploymentList(i.ViceNamespace, filter)
 	if err != nil {
@@ -584,7 +584,7 @@ func (i *Internal) relabelConfigMaps() []error {
 	filter := map[string]string{} // Empty on purpose. Only filter based on interactive label.
 	errors := []error{}
 
-	a := apps.NewApps(i.db)
+	a := apps.NewApps(i.db, i.UserSuffix)
 
 	cms, err := i.configmapsList(i.ViceNamespace, filter)
 	if err != nil {
@@ -621,7 +621,7 @@ func (i *Internal) relabelServices() []error {
 	filter := map[string]string{} // Empty on purpose. Only filter based on interactive label.
 	errors := []error{}
 
-	a := apps.NewApps(i.db)
+	a := apps.NewApps(i.db, i.UserSuffix)
 
 	svcs, err := i.serviceList(i.ViceNamespace, filter)
 	if err != nil {
@@ -658,7 +658,7 @@ func (i *Internal) relabelIngresses() []error {
 	filter := map[string]string{} // Empty on purpose. Only filter based on interactive label.
 	errors := []error{}
 
-	a := apps.NewApps(i.db)
+	a := apps.NewApps(i.db, i.UserSuffix)
 
 	ingresses, err := i.ingressList(i.ViceNamespace, filter)
 	if err != nil {

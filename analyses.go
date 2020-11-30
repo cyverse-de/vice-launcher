@@ -15,7 +15,7 @@ func (i *Internal) GetAsyncData(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "external-id not set")
 	}
 
-	apps := apps.NewApps(i.db)
+	apps := apps.NewApps(i.db, i.UserSuffix)
 
 	analysisID, err := apps.GetAnalysisIDByExternalID(externalID)
 	if err != nil {
@@ -57,7 +57,7 @@ func (i *Internal) GetAsyncData(c echo.Context) error {
 // only returns the first result, since VICE analyses only have a single step in
 // the database.
 func (i *Internal) getExternalIDByAnalysisID(analysisID string) (string, error) {
-	apps := apps.NewApps(i.db)
+	apps := apps.NewApps(i.db, i.UserSuffix)
 	username, _, err := apps.GetUserByAnalysisID(analysisID)
 	if err != nil {
 		return "", err

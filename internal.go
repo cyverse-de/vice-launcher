@@ -46,6 +46,7 @@ type Init struct {
 	AppsServiceBaseURL            string
 	ViceNamespace                 string
 	JobStatusURL                  string
+	UserSuffix                    string
 }
 
 // Internal contains information and operations for launching VICE apps inside the
@@ -80,7 +81,7 @@ func (i *Internal) labelsFromJob(job *model.Job) (map[string]string, error) {
 		stringmax = len(name) - 1
 	}
 
-	a := apps.NewApps(i.db)
+	a := apps.NewApps(i.db, i.UserSuffix)
 	ipAddr, err := a.GetUserIP(job.UserID)
 	if err != nil {
 		return nil, err
@@ -601,7 +602,7 @@ func (i *Internal) VICEAdminTimeLimitUpdate(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "id parameter is empty")
 	}
 
-	apps := apps.NewApps(i.db)
+	apps := apps.NewApps(i.db, i.UserSuffix)
 
 	user, _, err = apps.GetUserByAnalysisID(id)
 	if err != nil {
@@ -633,8 +634,8 @@ func (i *Internal) VICEGetTimeLimit(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusForbidden, "user is not set")
 	}
 
-	if !strings.HasSuffix(user, "@iplantcollaborative.org") {
-		user = fmt.Sprintf("%s@iplantcollaborative.org", user)
+	if !strings.HasSuffix(user, i.UserSuffix) {
+		user = fmt.Sprintf("%s%s", user, i.UserSuffix)
 	}
 
 	// analysisID is required
@@ -643,7 +644,7 @@ func (i *Internal) VICEGetTimeLimit(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "id parameter is empty")
 	}
 
-	apps := apps.NewApps(i.db)
+	apps := apps.NewApps(i.db, i.UserSuffix)
 
 	// Could use this to get the username, but we need to not break other services.
 	_, userID, err = apps.GetUserByAnalysisID(analysisID)
@@ -673,7 +674,7 @@ func (i *Internal) VICEAdminGetTimeLimit(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "id parameter is empty")
 	}
 
-	apps := apps.NewApps(i.db)
+	apps := apps.NewApps(i.db, i.UserSuffix)
 
 	// Could use this to get the username, but we need to not break other services.
 	_, userID, err = apps.GetUserByAnalysisID(analysisID)
