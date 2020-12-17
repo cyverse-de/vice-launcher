@@ -388,6 +388,21 @@ func (i *Internal) doExit(externalID string) error {
 		}
 	}
 
+	// Delete volumes used by the deployment
+	// Delete persistent volume claims.
+	// This will automatically delete persistent volumes associated with them.
+	pvcclient := i.clientset.CoreV1().PersistentVolumeClaims(i.ViceNamespace)
+	pvclist, err := pvcclient.List(listoptions)
+	if err != nil {
+		return err
+	}
+
+	for _, pvc := range pvclist.Items {
+		if err = pvcclient.Delete(pvc.Name, &metav1.DeleteOptions{}); err != nil {
+			log.Error(err)
+		}
+	}
+
 	// Delete the input files list and the excludes list config maps
 	cmclient := i.clientset.CoreV1().ConfigMaps(i.ViceNamespace)
 	cmlist, err := cmclient.List(listoptions)
