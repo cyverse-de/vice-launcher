@@ -121,6 +121,18 @@ func (i *Internal) getMountPoints(paths []string) ([]string, error) {
 	return mountPointArray, nil
 }
 
+func getIRODSFuseMountZonePath(path string) (string, string, error) {
+	pathElems := strings.Split(path[1:], "/")
+	if len(pathElems) < 2 {
+		return "", "", fmt.Errorf("path '%s' does not contain zone and path", path)
+	}
+
+	zone := pathElems[0]
+	mountPath := "/" + strings.Join(pathElems[1:], "/")
+
+	return zone, mountPath, nil
+}
+
 func (i *Internal) inputCSIVolumeLabels(job *model.Job, mountID int) (map[string]string, error) {
 	labels, err := i.labelsFromJob(job)
 	if err != nil {
@@ -164,6 +176,11 @@ func (i *Internal) getPersistentVolumes(job *model.Job) ([]*apiv1.PersistentVolu
 
 		// input - can be multiple
 		for inputMountID, inputMountPath := range inputMountPaths {
+			_, fuseInputMountPath, err := getIRODSFuseMountZonePath(inputMountPath)
+			if err != nil {
+				return nil, err
+			}
+
 			inputVolumeLabels, err := i.inputCSIVolumeLabels(job, inputMountID)
 			if err != nil {
 				return nil, err
@@ -184,15 +201,14 @@ func (i *Internal) getPersistentVolumes(job *model.Job) ([]*apiv1.PersistentVolu
 							apiv1.ReadWriteMany,
 						},
 						PersistentVolumeReclaimPolicy: apiv1.PersistentVolumeReclaimDelete,
-						//PersistentVolumeReclaimPolicy: apiv1.PersistentVolumeReclaimRetain,
-						StorageClassName: csiDriverStorageClassName,
+						StorageClassName:              csiDriverStorageClassName,
 						PersistentVolumeSource: apiv1.PersistentVolumeSource{
 							CSI: &apiv1.CSIPersistentVolumeSource{
 								Driver:       csiDriverName,
 								VolumeHandle: i.inputCSIVolumeHandle(job, inputMountID),
 								VolumeAttributes: map[string]string{
 									"client": "irodsfuse",
-									"path":   inputMountPath,
+									"path":   fuseInputMountPath,
 									// use proxy access
 									"clientUser": job.Submitter,
 								},
@@ -205,6 +221,11 @@ func (i *Internal) getPersistentVolumes(job *model.Job) ([]*apiv1.PersistentVolu
 
 		// output - can be multiple
 		for outputMountID, outputMountPath := range outputMountPaths {
+			_, fuseOutputMountPath, err := getIRODSFuseMountZonePath(outputMountPath)
+			if err != nil {
+				return nil, err
+			}
+
 			outputVolumeLabels, err := i.outputCSIVolumeLabels(job, outputMountID)
 			if err != nil {
 				return nil, err
@@ -225,15 +246,14 @@ func (i *Internal) getPersistentVolumes(job *model.Job) ([]*apiv1.PersistentVolu
 							apiv1.ReadWriteMany,
 						},
 						PersistentVolumeReclaimPolicy: apiv1.PersistentVolumeReclaimDelete,
-						//PersistentVolumeReclaimPolicy: apiv1.PersistentVolumeReclaimRetain,
-						StorageClassName: csiDriverStorageClassName,
+						StorageClassName:              csiDriverStorageClassName,
 						PersistentVolumeSource: apiv1.PersistentVolumeSource{
 							CSI: &apiv1.CSIPersistentVolumeSource{
 								Driver:       csiDriverName,
 								VolumeHandle: i.outputCSIVolumeHandle(job, outputMountID),
 								VolumeAttributes: map[string]string{
 									"client": "irodsfuse",
-									"path":   outputMountPath,
+									"path":   fuseOutputMountPath,
 									// use proxy access
 									"clientUser": job.Submitter,
 								},
