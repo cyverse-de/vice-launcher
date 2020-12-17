@@ -7,6 +7,13 @@ const (
 	porklockConfigSecretName = "porklock-config"
 	porklockConfigMountPath  = "/etc/porklock"
 
+	csiDriverName                        = "irods.csi.cyverse.org"
+	csiDriverStorageClassName            = "irods-sc"
+	csiDriverInputVolumeNamePrefix       = "appexposer-csi-input-volume"
+	csiDriverOutputVolumeNamePrefix      = "appexposer-csi-output-volume"
+	csiDriverInputVolumeClaimNamePrefix  = "appexposer-csi-input-volume-claim"
+	csiDriverOutputVolumeClaimNamePrefix = "appexposer-csi-output-volume-claim"
+
 	fileTransfersVolumeName        = "input-files"
 	fileTransfersContainerName     = "input-files"
 	fileTransfersInitContainerName = "input-files-init"

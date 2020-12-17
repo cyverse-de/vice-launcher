@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/cyverse-de/model.v4"
+	"gopkg.in/cyverse-de/model.v5"
 
 	"github.com/pkg/errors"
 
@@ -193,6 +193,19 @@ func isFinished(status string) bool {
 // analysis. We only need the ID of the job, nothing is required in the
 // body of the request.
 func (i *Internal) doFileTransfer(externalID, reqpath, kind string, async bool) error {
+	if i.UseCSIDriver {
+		// if we use CSI Driver, file transfer is not required.
+		msg := fmt.Sprintf("%s succeeded for job %s", kind, externalID)
+
+		log.Info(msg)
+
+		if successerr := i.statusPublisher.Running(externalID, msg); successerr != nil {
+			log.Error(successerr)
+		}
+
+		return nil
+	}
+
 	log.Infof("starting %s transfers for job %s", kind, externalID)
 
 	// Make sure that the list of services only comes from the VICE namespace.
