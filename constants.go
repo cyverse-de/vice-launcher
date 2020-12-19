@@ -9,10 +9,10 @@ const (
 
 	csiDriverName                        = "irods.csi.cyverse.org"
 	csiDriverStorageClassName            = "irods-sc"
-	csiDriverInputVolumeNamePrefix       = "appexposer-csi-input-volume"
-	csiDriverOutputVolumeNamePrefix      = "appexposer-csi-output-volume"
-	csiDriverInputVolumeClaimNamePrefix  = "appexposer-csi-input-volume-claim"
-	csiDriverOutputVolumeClaimNamePrefix = "appexposer-csi-output-volume-claim"
+	csiDriverInputVolumeNamePrefix       = "csi-input"
+	csiDriverOutputVolumeNamePrefix      = "csi-output"
+	csiDriverInputVolumeClaimNamePrefix  = "csi-input-claim"
+	csiDriverOutputVolumeClaimNamePrefix = "csi-output-claim"
 
 	fileTransfersVolumeName        = "input-files"
 	fileTransfersContainerName     = "input-files"
