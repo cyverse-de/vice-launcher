@@ -275,6 +275,9 @@ func (i *Internal) VICELaunchApp(c echo.Context) error {
 	}
 
 	if status, err := i.validateJob(job); err != nil {
+		if validationErr, ok := err.(common.ErrorResponse); ok {
+			return validationErr
+		}
 		return echo.NewHTTPError(status, err.Error())
 	}
 
