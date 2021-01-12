@@ -27,7 +27,7 @@ func (i *Internal) GetAsyncData(c echo.Context) error {
 		"external-id": externalID,
 	}
 
-	deployments, err := i.deploymentList(i.ViceNamespace, filter)
+	deployments, err := i.deploymentList(i.ViceNamespace, filter, []string{})
 	if err != nil {
 		return err
 	}
