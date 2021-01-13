@@ -8,6 +8,7 @@ import (
 
 	"github.com/cyverse-de/app-exposer/apps"
 	"github.com/labstack/echo/v4"
+	"github.com/pkg/errors"
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	extv1b1 "k8s.io/api/extensions/v1beta1"
@@ -533,7 +534,9 @@ func populateAnalysisID(a *apps.Apps, existingLabels map[string]string) (map[str
 			return existingLabels, fmt.Errorf("missing external-id key")
 		}
 		analysisID, err := a.GetAnalysisIDByExternalID(externalID)
-		if err == nil {
+		if err != nil {
+			log.Debug(errors.Wrapf(err, "error getting analysis id for external id %s", externalID))
+		} else {
 			existingLabels["analysis-id"] = analysisID
 		}
 	}
