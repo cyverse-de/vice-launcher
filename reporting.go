@@ -541,12 +541,6 @@ func populateAnalysisID(a *apps.Apps, existingLabels map[string]string) (map[str
 			return existingLabels, fmt.Errorf("missing external-id key")
 		}
 		analysisID, err := a.GetAnalysisIDByExternalID(externalID)
-		// if err != nil {
-		// 	log.Error(errors.Wrapf(err, "error getting analysis id for external id %s", externalID))
-		// } else {
-		// 	existingLabels["analysis-id"] = analysisID
-		// }
-
 		if err == nil {
 			existingLabels["analysis-id"] = analysisID
 		}
