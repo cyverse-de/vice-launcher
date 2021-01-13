@@ -14,9 +14,10 @@ import (
 	extv1b1 "k8s.io/api/extensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 )
 
-func getListOptions(customLabels map[string]string) metav1.ListOptions {
+func getListSelector(customLabels map[string]string) labels.Selector {
 	allLabels := map[string]string{
 		"app-type": "interactive",
 	}
@@ -27,13 +28,38 @@ func getListOptions(customLabels map[string]string) metav1.ListOptions {
 
 	set := labels.Set(allLabels)
 
+	return set.AsSelector()
+}
+
+// getListOptions returns a ListOptions for listing a resource that has the
+// labels provided in customLabels, but is missing the labels provided in missingLabels.
+func getListOptions(customLabels map[string]string, missingLabels []string) metav1.ListOptions {
+	// Get the selector populated with the labels that should be present
+	s := getListSelector(customLabels)
+
+	// the list of requirements for labels that should be missing from the objects
+	// in the listing.
+	reqs := []labels.Requirement{}
+
+	// populate the requirements
+	for _, missingLabel := range missingLabels {
+		newReq, err := labels.NewRequirement(missingLabel, selection.DoesNotExist, []string{})
+		if err != nil {
+			log.Error(err)
+		} else {
+			reqs = append(reqs, *newReq)
+		}
+	}
+
+	s = s.Add(reqs...)
+
 	return metav1.ListOptions{
-		LabelSelector: set.AsSelector().String(),
+		LabelSelector: s.String(),
 	}
 }
 
-func (i *Internal) deploymentList(namespace string, customLabels map[string]string) (*v1.DeploymentList, error) {
-	listOptions := getListOptions(customLabels)
+func (i *Internal) deploymentList(namespace string, customLabels map[string]string, missingLabels []string) (*v1.DeploymentList, error) {
+	listOptions := getListOptions(customLabels, missingLabels)
 
 	depList, err := i.clientset.AppsV1().Deployments(namespace).List(listOptions)
 	if err != nil {
@@ -43,8 +69,8 @@ func (i *Internal) deploymentList(namespace string, customLabels map[string]stri
 	return depList, nil
 }
 
-func (i *Internal) podList(namespace string, customLabels map[string]string) (*corev1.PodList, error) {
-	listOptions := getListOptions(customLabels)
+func (i *Internal) podList(namespace string, customLabels map[string]string, missingLabels []string) (*corev1.PodList, error) {
+	listOptions := getListOptions(customLabels, missingLabels)
 
 	podList, err := i.clientset.CoreV1().Pods(namespace).List(listOptions)
 	if err != nil {
@@ -54,8 +80,8 @@ func (i *Internal) podList(namespace string, customLabels map[string]string) (*c
 	return podList, nil
 }
 
-func (i *Internal) configmapsList(namespace string, customLabels map[string]string) (*corev1.ConfigMapList, error) {
-	listOptions := getListOptions(customLabels)
+func (i *Internal) configmapsList(namespace string, customLabels map[string]string, missingLabels []string) (*corev1.ConfigMapList, error) {
+	listOptions := getListOptions(customLabels, missingLabels)
 
 	cfgList, err := i.clientset.CoreV1().ConfigMaps(namespace).List(listOptions)
 	if err != nil {
@@ -65,8 +91,8 @@ func (i *Internal) configmapsList(namespace string, customLabels map[string]stri
 	return cfgList, nil
 }
 
-func (i *Internal) serviceList(namespace string, customLabels map[string]string) (*corev1.ServiceList, error) {
-	listOptions := getListOptions(customLabels)
+func (i *Internal) serviceList(namespace string, customLabels map[string]string, missingLabels []string) (*corev1.ServiceList, error) {
+	listOptions := getListOptions(customLabels, missingLabels)
 
 	svcList, err := i.clientset.CoreV1().Services(namespace).List(listOptions)
 	if err != nil {
@@ -76,8 +102,8 @@ func (i *Internal) serviceList(namespace string, customLabels map[string]string)
 	return svcList, nil
 }
 
-func (i *Internal) ingressList(namespace string, customLabels map[string]string) (*extv1b1.IngressList, error) {
-	listOptions := getListOptions(customLabels)
+func (i *Internal) ingressList(namespace string, customLabels map[string]string, missingLabels []string) (*extv1b1.IngressList, error) {
+	listOptions := getListOptions(customLabels, missingLabels)
 
 	ingList, err := i.clientset.ExtensionsV1beta1().Ingresses(namespace).List(listOptions)
 	if err != nil {
@@ -304,7 +330,7 @@ func ingressInfo(ingress *extv1b1.Ingress) *IngressInfo {
 }
 
 func (i *Internal) getFilteredDeployments(filter map[string]string) ([]DeploymentInfo, error) {
-	depList, err := i.deploymentList(i.ViceNamespace, filter)
+	depList, err := i.deploymentList(i.ViceNamespace, filter, []string{})
 	if err != nil {
 		return nil, err
 	}
@@ -334,7 +360,7 @@ func (i *Internal) FilterableDeployments(c echo.Context) error {
 }
 
 func (i *Internal) getFilteredPods(filter map[string]string) ([]PodInfo, error) {
-	podList, err := i.podList(i.ViceNamespace, filter)
+	podList, err := i.podList(i.ViceNamespace, filter, []string{})
 	if err != nil {
 		return nil, err
 	}
@@ -364,7 +390,7 @@ func (i *Internal) FilterablePods(c echo.Context) error {
 }
 
 func (i *Internal) getFilteredConfigMaps(filter map[string]string) ([]ConfigMapInfo, error) {
-	cmList, err := i.configmapsList(i.ViceNamespace, filter)
+	cmList, err := i.configmapsList(i.ViceNamespace, filter, []string{})
 	if err != nil {
 		return nil, err
 	}
@@ -394,7 +420,7 @@ func (i *Internal) FilterableConfigMaps(c echo.Context) error {
 }
 
 func (i *Internal) getFilteredServices(filter map[string]string) ([]ServiceInfo, error) {
-	svcList, err := i.serviceList(i.ViceNamespace, filter)
+	svcList, err := i.serviceList(i.ViceNamespace, filter, []string{})
 	if err != nil {
 		return nil, err
 	}
@@ -424,7 +450,7 @@ func (i *Internal) FilterableServices(c echo.Context) error {
 }
 
 func (i *Internal) getFilteredIngresses(filter map[string]string) ([]IngressInfo, error) {
-	ingList, err := i.ingressList(i.ViceNamespace, filter)
+	ingList, err := i.ingressList(i.ViceNamespace, filter, []string{})
 	if err != nil {
 		return nil, err
 	}
@@ -509,7 +535,7 @@ func populateAnalysisID(a *apps.Apps, existingLabels map[string]string) (map[str
 		}
 		analysisID, err := a.GetAnalysisIDByExternalID(externalID)
 		if err != nil {
-			log.Error(errors.Wrapf(err, "error getting analysis id for external id %s", externalID))
+			log.Debug(errors.Wrapf(err, "error getting analysis id for external id %s", externalID))
 		} else {
 			existingLabels["analysis-id"] = analysisID
 		}
@@ -549,7 +575,7 @@ func (i *Internal) relabelDeployments() []error {
 
 	a := apps.NewApps(i.db, i.UserSuffix)
 
-	deployments, err := i.deploymentList(i.ViceNamespace, filter)
+	deployments, err := i.deploymentList(i.ViceNamespace, filter, []string{"subdomain"})
 	if err != nil {
 		errors = append(errors, err)
 		return errors
@@ -586,7 +612,7 @@ func (i *Internal) relabelConfigMaps() []error {
 
 	a := apps.NewApps(i.db, i.UserSuffix)
 
-	cms, err := i.configmapsList(i.ViceNamespace, filter)
+	cms, err := i.configmapsList(i.ViceNamespace, filter, []string{"subdomain"})
 	if err != nil {
 		errors = append(errors, err)
 		return errors
@@ -623,7 +649,7 @@ func (i *Internal) relabelServices() []error {
 
 	a := apps.NewApps(i.db, i.UserSuffix)
 
-	svcs, err := i.serviceList(i.ViceNamespace, filter)
+	svcs, err := i.serviceList(i.ViceNamespace, filter, []string{"subdomain"})
 	if err != nil {
 		errors = append(errors, err)
 		return errors
@@ -660,7 +686,7 @@ func (i *Internal) relabelIngresses() []error {
 
 	a := apps.NewApps(i.db, i.UserSuffix)
 
-	ingresses, err := i.ingressList(i.ViceNamespace, filter)
+	ingresses, err := i.ingressList(i.ViceNamespace, filter, []string{"subdomain"})
 	if err != nil {
 		errors = append(errors, err)
 		return errors
