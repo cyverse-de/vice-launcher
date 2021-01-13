@@ -30,14 +30,6 @@ func getListSelector(customLabels map[string]string) labels.Selector {
 	return set.AsSelector()
 }
 
-// func getListOptions(customLabels map[string]string) metav1.ListOptions {
-// 	s := getListSelector(customLabels)
-
-// 	return metav1.ListOptions{
-// 		LabelSelector: s.String(),
-// 	}
-// }
-
 // getListOptions returns a ListOptions for listing a resource that has the
 // labels provided in customLabels, but is missing the labels provided in missingLabels.
 func getListOptions(customLabels map[string]string, missingLabels []string) metav1.ListOptions {
