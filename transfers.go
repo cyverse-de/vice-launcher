@@ -333,7 +333,7 @@ func (i *Internal) doFileTransfer(externalID, reqpath, kind string, async bool) 
 
 				transferObj, xfererr = getTransferDetails(transferObj.UUID, svc, fullreqpath)
 				if xfererr != nil {
-					log.Error(errors.Wrapf(xfererr, "error gettinjg transfer details for transferObj %s", transferObj.UUID))
+					log.Error(errors.Wrapf(xfererr, "error getting transfer details for transferObj %s", fullreqpath))
 					err = xfererr
 					return
 				}
