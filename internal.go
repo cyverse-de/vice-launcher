@@ -538,18 +538,22 @@ func (i *Internal) VICESaveAndExit(c echo.Context) error {
 	go func(c echo.Context) {
 		var err error
 
-		log.Info("calling doFileTransfer")
+		externalID := c.Param("id")
+
+		log.Infof("calling doFileTransfer for %s", externalID)
 
 		// Trigger a blocking output file transfer request.
-		if err = i.doFileTransfer(c.Param("id"), uploadBasePath, uploadKind, false); err != nil {
+		if err = i.doFileTransfer(externalID, uploadBasePath, uploadKind, false); err != nil {
 			log.Error(errors.Wrap(err, "error doing file transfer")) // Log but don't exit. Possible to cancel a job that hasn't started yet
 		}
 
-		log.Info("calling VICEExit")
+		log.Infof("calling VICEExit for %s", externalID)
 
-		i.VICEExit(c)
+		if err = i.doExit(externalID); err != nil {
+			log.Error(errors.Wrapf(err, "error triggering analysis exit for %s", externalID))
+		}
 
-		log.Info("after VICEExit")
+		log.Infof("after VICEExit for %s", externalID)
 	}(c)
 
 	log.Info("leaving save and exit")
