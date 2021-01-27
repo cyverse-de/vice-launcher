@@ -96,7 +96,7 @@ func (i *Internal) countJobsForUser(username string) (int, error) {
 
 const getJobLimitForUserSQL = `
 	SELECT concurrent_jobs FROM job_limits
-	WHERE launcher = $1
+	WHERE launcher = regexp_replace($1, '-', '_')
 `
 
 func (i *Internal) getJobLimitForUser(username string) (*int, error) {
