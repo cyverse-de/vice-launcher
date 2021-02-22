@@ -1,84 +1,275 @@
 package internal
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 
-	"github.com/cyverse-de/app-exposer/common"
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/jmoiron/sqlx"
+	"github.com/stretchr/testify/assert"
+	"gopkg.in/cyverse-de/model.v5"
+	v1 "k8s.io/api/apps/v1"
+	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes/fake"
 )
 
-func verifyStatus(t *testing.T, actual, expected int) {
-	if expected != actual {
-		t.Errorf("status code was %d, not %d", actual, expected)
+// The default configuration to use for testing.
+var testConfig = &Init{
+	PorklockImage:                 "discoenv/porklock",
+	PorklockTag:                   "latest",
+	UseCSIDriver:                  false,
+	InputPathListIdentifier:       "# application/vnd.de.multi-input-path-list+csv; version=1",
+	TicketInputPathListIdentifier: "# application/vnd.de.tickets-path-list+csv; version=1",
+	ViceProxyImage:                "discoenv/vice-proxy",
+	CASBaseURL:                    "https://auth.example.org/cas",
+	FrontendBaseURL:               "https://example.run",
+	ViceDefaultBackendService:     "vice-default-backend",
+	ViceDefaultBackendServicePort: 80,
+	GetAnalysisIDService:          "get-analysis-id",
+	CheckResourceAccessService:    "check-resource-access",
+	VICEBackendNamespace:          "de",
+	AppsServiceBaseURL:            "http://apps",
+	ViceNamespace:                 "vice-apps",
+	JobStatusURL:                  "http://job-status-listener",
+	UserSuffix:                    "@example.org",
+}
+
+// viceDeployment creates a fake VICE deployment to use for testing.
+func viceDeployment(n int, namespace, username string, externalID *string) *v1.Deployment {
+	labels := map[string]string{"username": username}
+	if externalID != nil {
+		labels["external-id"] = *externalID
+	}
+	return &v1.Deployment{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Namespace: namespace,
+			Name:      fmt.Sprintf("analysis %d", n),
+			Labels:    labels,
+		},
 	}
 }
 
-func verifyNoError(t *testing.T, actual error) {
-	if actual != nil {
-		t.Errorf("an error was returned where none was expected")
+// setupInternal sets up an instance of Internal to use for testing.
+func setupInternal(t *testing.T, objs []runtime.Object) (*Internal, sqlmock.Sqlmock) {
+	mockdb, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal("unable to create the mock database")
+	}
+	sqlxMockDB := sqlx.NewDb(mockdb, "sqlmock")
+
+	client := fake.NewSimpleClientset(objs...)
+
+	internal := New(testConfig, sqlxMockDB, client)
+	return internal, mock
+}
+
+// intPointer is just a helper function to return a pointer to an integer.
+func intPointer(value int) *int {
+	return &value
+}
+
+// stringPointer is just a helper function to return a pointer to a string.
+func stringPointer(value string) *string {
+	return &value
+}
+
+// registerLimitQuery registers a job limit query for a user.
+func registerLimitQuery(mock sqlmock.Sqlmock, username string, limit *int) {
+	rows := mock.NewRows([]string{"concurrent_jobs"})
+	if limit != nil {
+		rows.AddRow(fmt.Sprintf("%d", *limit))
+	}
+	mock.ExpectQuery("SELECT concurrent_jobs FROM job_limits WHERE launcher =").
+		WithArgs(username).
+		WillReturnRows(rows)
+}
+
+// registerDefaultLimitQuery registers the default job limit query.
+func registerDefaultLimitQuery(mock sqlmock.Sqlmock, limit int) {
+	rows := mock.NewRows([]string{"concurrent_jobs"}).AddRow(fmt.Sprintf("%d", limit))
+	mock.ExpectQuery("SELECT concurrent_jobs FROM job_limits WHERE launcher IS NULL").
+		WillReturnRows(rows)
+}
+
+// registerAnalysisIDQuery registers the query to get the analysis ID for an external ID
+// if that an external ID is provided. If no external ID is provided then we assume that
+// no query should be performed.
+func registerAnalysisIDQuery(mock sqlmock.Sqlmock, externalID, analysisID *string) {
+	if externalID != nil {
+		rows := mock.NewRows([]string{"id"})
+		if analysisID != nil {
+			rows.AddRow(*analysisID)
+		}
+		mock.ExpectQuery("SELECT j.id FROM jobs j JOIN job_steps s ON s.job_id = j.id").
+			WithArgs(*externalID).
+			WillReturnRows(rows)
 	}
 }
 
-func verifyErrorCode(t *testing.T, err error, expected string) {
-
-	// It's a problem if there is no error.
-	if err == nil {
-		t.Errorf("no error was returned when one was expected")
-		return
+// registerAnalysisStatusQuery registers the query to get the status of an analysis ID
+// if an analysis ID is provided. If no analysis ID is provided then we assume that no
+// query should be performed.
+func registerAnalysisStatusQuery(mock sqlmock.Sqlmock, analysisID, status *string) {
+	if analysisID != nil {
+		rows := mock.NewRows([]string{"status"})
+		if status != nil {
+			rows.AddRow(*status)
+		}
+		mock.ExpectQuery("SELECT j.status FROM jobs j").WithArgs(analysisID).WillReturnRows(rows)
 	}
+}
 
-	// It's a problem if the wrong type of error was returned.
-	var errorResponse common.ErrorResponse
-	switch val := err.(type) {
-	case common.ErrorResponse:
-		errorResponse = val
+// expectedLimitError builds the expected error code for the given values.
+func expectedLimitError(user string, defaultJobLimit, jobCount int, jobLimit *int) error {
+	switch {
+
+	// Jobs are disabled by default and the user has not been granted permission yet.
+	case jobLimit == nil && defaultJobLimit <= 0:
+		code := "ERR_PERMISSION_NEEDED"
+		msg := fmt.Sprintf("%s has not been granted permission to run jobs yet", user)
+		return buildLimitError(code, msg, defaultJobLimit, jobCount, jobLimit)
+
+	// Jobs have been explicitly disabled for the user.
+	case jobLimit != nil && *jobLimit <= 0:
+		code := "ERR_FORBIDDEN"
+		msg := fmt.Sprintf("%s is not permitted to run jobs", user)
+		return buildLimitError(code, msg, defaultJobLimit, jobCount, jobLimit)
+
+	// The user is using and has reached the default job limit.
+	case jobLimit == nil && jobCount >= defaultJobLimit:
+		code := "ERR_LIMIT_REACHED"
+		msg := fmt.Sprintf("%s is already running %d or more concurrent jobs", user, defaultJobLimit)
+		return buildLimitError(code, msg, defaultJobLimit, jobCount, jobLimit)
+
+	// The user has explicitly been granted the ability to run jobs and has reached the limit.
+	case jobLimit != nil && jobCount >= *jobLimit:
+		code := "ERR_LIMIT_REACHED"
+		msg := fmt.Sprintf("%s is already running %d or more concurrent jobs", user, *jobLimit)
+		return buildLimitError(code, msg, defaultJobLimit, jobCount, jobLimit)
+
+	// In every other case, we can permit the job to be launched.
 	default:
-		t.Errorf("a general error was returned when a custom error was expected")
-		return
-	}
-
-	// It's a problem if the error code is not what we expect.
-	actual := errorResponse.ErrorCode
-	if actual != expected {
-		t.Errorf("error code was %s instead of %s", actual, expected)
+		return nil
 	}
 }
 
-func TestDefaultLimitNotReached(t *testing.T) {
-	status, err := validateJobLimits("foo", 2, 1, nil)
-	verifyStatus(t, status, http.StatusOK)
-	verifyNoError(t, err)
+// createTestSubmission creates a job submission for testing.
+func createTestSubmission(username string) *model.Job {
+	return &model.Job{
+		ExecutionTarget: "interapps",
+		Submitter:       username,
+	}
 }
 
-func TestExplicitLimitNotReached(t *testing.T) {
-	limit := 2
-	status, err := validateJobLimits("foo", 0, 1, &limit)
-	verifyStatus(t, status, http.StatusOK)
-	verifyNoError(t, err)
+type analysisRecord struct {
+	externalID *string
+	analysisID *string
+	status     *string
 }
 
-func TestDefaultLimitReached(t *testing.T) {
-	status, err := validateJobLimits("foo", 2, 2, nil)
-	verifyStatus(t, status, http.StatusBadRequest)
-	verifyErrorCode(t, err, "ERR_LIMIT_REACHED")
+type limitTest struct {
+	description  string
+	username     string
+	analyses     []analysisRecord
+	limit        *int
+	defaultLimit int
 }
 
-func TestExplicitLimitReached(t *testing.T) {
-	limit := 2
-	status, err := validateJobLimits("foo", 0, 2, &limit)
-	verifyStatus(t, status, http.StatusBadRequest)
-	verifyErrorCode(t, err, "ERR_LIMIT_REACHED")
+var testAnalyses = []analysisRecord{
+	{
+		externalID: stringPointer("d24b8885-ddfb-4192-96aa-03d127576e51"),
+		analysisID: stringPointer("604215e8-019c-4ca7-9141-e8fd0f5c9088"),
+		status:     stringPointer("Running"),
+	},
+	{
+		externalID: stringPointer("4056f3dc-5829-4960-bbcc-ccd11c650843"),
+		analysisID: stringPointer("a6e54728-fb25-40b8-908e-83c6616d3bf1"),
+		status:     stringPointer("Running"),
+	},
 }
 
-func TestExplicitPermissionNotGranted(t *testing.T) {
-	status, err := validateJobLimits("foo", 0, 0, nil)
-	verifyStatus(t, status, http.StatusBadRequest)
-	verifyErrorCode(t, err, "ERR_PERMISSION_NEEDED")
-}
+func TestLimitChecks(t *testing.T) {
+	tests := []limitTest{
+		{
+			description:  "default limit not reached",
+			username:     "foo",
+			analyses:     testAnalyses[0:1],
+			limit:        nil,
+			defaultLimit: 2,
+		},
+		{
+			description:  "explicit limit not reached",
+			username:     "foo",
+			analyses:     testAnalyses[0:1],
+			limit:        intPointer(2),
+			defaultLimit: 0,
+		},
+		{
+			description:  "default limit reached",
+			username:     "foo",
+			analyses:     testAnalyses,
+			limit:        nil,
+			defaultLimit: 2,
+		},
+		{
+			description:  "explicit limit reached",
+			username:     "foo",
+			analyses:     testAnalyses,
+			limit:        nil,
+			defaultLimit: 2,
+		},
+		{
+			description:  "explicit permission not granted",
+			username:     "foo",
+			analyses:     []analysisRecord{},
+			limit:        nil,
+			defaultLimit: 0,
+		},
+		{
+			description:  "banned user",
+			username:     "foo",
+			analyses:     []analysisRecord{},
+			limit:        intPointer(0),
+			defaultLimit: 0,
+		},
+	}
 
-func TestBannedUser(t *testing.T) {
-	limit := 0
-	status, err := validateJobLimits("foo", 0, 0, &limit)
-	verifyStatus(t, status, http.StatusBadRequest)
-	verifyErrorCode(t, err, "ERR_FORBIDDEN")
+	// Run the tests.
+	for _, test := range tests {
+		t.Run(test.description, func(t *testing.T) {
+			assert := assert.New(t)
+
+			// Prepare the list of k8s objects.
+			objs := make([]runtime.Object, len(test.analyses))
+			for i, analysis := range test.analyses {
+				objs[i] = viceDeployment(i, "vice-apps", test.username, analysis.externalID)
+			}
+
+			// Create all of the mocks.
+			internal, mock := setupInternal(t, objs)
+			defer internal.db.Close()
+
+			// Add the database expectations.
+			for _, analysis := range test.analyses {
+				registerAnalysisIDQuery(mock, analysis.externalID, analysis.analysisID)
+				registerAnalysisStatusQuery(mock, analysis.analysisID, analysis.status)
+			}
+			registerLimitQuery(mock, test.username, test.limit)
+			registerDefaultLimitQuery(mock, test.defaultLimit)
+
+			// Run the limit check.
+			status, err := internal.validateJob(createTestSubmission(test.username))
+			expectedError := expectedLimitError(test.username, test.defaultLimit, len(test.analyses), test.limit)
+			if expectedError == nil {
+				assert.Equalf(http.StatusOK, status, "the status code should be %d", http.StatusOK)
+				assert.NoError(err, "no error should be returned")
+			} else {
+				assert.Equalf(http.StatusBadRequest, status, "the status code should be %d", http.StatusBadRequest)
+				assert.Equal(expectedError, err, "the correct error should be returned")
+			}
+			assert.NoError(mock.ExpectationsWereMet(), "the correct queries should be executed")
+		})
+	}
 }

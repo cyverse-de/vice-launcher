@@ -179,7 +179,7 @@ func (i *Internal) validateJob(job *model.Job) (int, error) {
 	// Get the username
 	user := slugString(job.Submitter)
 
-	// Look
+	// Validate the number of concurrent jobs for the user.
 	jobCount, err := i.countJobsForUser(user)
 	if err != nil {
 		return http.StatusInternalServerError, errors.Wrapf(err, "unable to determine the number of jobs that %s is currently running", user)
