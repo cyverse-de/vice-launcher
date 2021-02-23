@@ -38,7 +38,7 @@ var testConfig = &Init{
 
 // viceDeployment creates a fake VICE deployment to use for testing.
 func viceDeployment(n int, namespace, username string, externalID *string) *v1.Deployment {
-	labels := map[string]string{"username": username}
+	labels := map[string]string{"username": labelValueString(username)}
 	if externalID != nil {
 		labels["external-id"] = *externalID
 	}
@@ -217,8 +217,8 @@ func TestLimitChecks(t *testing.T) {
 			description:  "explicit limit reached",
 			username:     "foo",
 			analyses:     testAnalyses,
-			limit:        nil,
-			defaultLimit: 2,
+			limit:        intPointer(2),
+			defaultLimit: 0,
 		},
 		{
 			description:  "explicit permission not granted",
@@ -232,6 +232,41 @@ func TestLimitChecks(t *testing.T) {
 			username:     "foo",
 			analyses:     []analysisRecord{},
 			limit:        intPointer(0),
+			defaultLimit: 0,
+		},
+		{
+			description:  "username containing a trailing underscore",
+			username:     "foo_",
+			analyses:     []analysisRecord{},
+			limit:        intPointer(2),
+			defaultLimit: 0,
+		},
+		{
+			description:  "username containing multiple trailing underscores",
+			username:     "foo____",
+			analyses:     []analysisRecord{},
+			limit:        intPointer(2),
+			defaultLimit: 0,
+		},
+		{
+			description:  "username containing a leading underscore",
+			username:     "_foo",
+			analyses:     []analysisRecord{},
+			limit:        intPointer(2),
+			defaultLimit: 0,
+		},
+		{
+			description:  "username containing multiple leading underscores",
+			username:     "____foo",
+			analyses:     []analysisRecord{},
+			limit:        intPointer(2),
+			defaultLimit: 0,
+		},
+		{
+			description:  "username containing a bunch of underscores and hyphens",
+			username:     "____foo__bar--baz__quux____",
+			analyses:     []analysisRecord{},
+			limit:        intPointer(2),
 			defaultLimit: 0,
 		},
 	}
@@ -272,4 +307,17 @@ func TestLimitChecks(t *testing.T) {
 			assert.NoError(mock.ExpectationsWereMet(), "the correct queries should be executed")
 		})
 	}
+}
+
+func TestLabelValueReplacement(t *testing.T) {
+	assert := assert.New(t)
+
+	assert.Equal("foo-xxx-u", labelValueString("foo_"))
+	assert.Equal("foo-xxx-u-u", labelValueString("foo__"))
+	assert.Equal("foo-xxx-u-h-u", labelValueString("foo_-_"))
+	assert.Equal("h-xxx-foo", labelValueString("-foo"))
+	assert.Equal("h-u-h-xxx-foo", labelValueString("-_-foo"))
+	assert.Equal("h-u-h-xxx-foo-bar-xxx-h-u-h", labelValueString("-_-foo-bar-_-"))
+	assert.Equal("u-u-u-xxx-foo_bar-xxx-u-u-u", labelValueString("___foo_bar___"))
+	assert.Equal("u-u-u-u-xxx-foo__bar-baz__quux-xxx-u-u-u-u", labelValueString("____foo__bar--baz__quux____"))
 }
