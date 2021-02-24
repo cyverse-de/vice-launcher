@@ -3,6 +3,7 @@ package internal
 import (
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -23,10 +24,39 @@ import (
 
 var log = common.Log
 
-func slugString(str string) string {
+var leadingLabelReplacerRegexp = regexp.MustCompile("^[^0-9A-Za-z]+")
+var trailingLabelReplacerRegexp = regexp.MustCompile("[^0-9A-Za-z]+$")
+
+// labelReplacerFn returns a function that can be used to replace invalid leading and trailing characters
+// in label values. Hyphens are replaced by the letter "h". Underscores are replaced by the letter "u".
+// Other characters in the match are replaced by the empty string. The prefix and suffix are placed before
+// and after the replacement, respectively.
+func labelReplacerFn(prefix, suffix string) func(string) string {
+	replacementFor := map[rune]string{
+		'-': "h",
+		'_': "u",
+	}
+
+	return func(match string) string {
+		runes := []rune(match)
+		elems := make([]string, len(runes))
+		for i, c := range runes {
+			elems[i] = replacementFor[c]
+		}
+		return prefix + strings.Join(elems, "-") + suffix
+	}
+}
+
+// labelValueString returns a version of the given string that may be used as a value in a Kubernetes
+// label. See: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/. Leading and
+// trailing underscores and hyphens are replaced by sequences of `u` and `h`, separated by hyphens.
+// These sequences are separated from the main part of the label value by `-xxx-`. This is kind of
+// hokey, but it makes it at least fairly unlikely that we'll encounter collisions.
+func labelValueString(str string) string {
 	slug.MaxLength = 63
-	text := slug.Make(str)
-	return strings.ReplaceAll(text, "_", "-")
+	str = leadingLabelReplacerRegexp.ReplaceAllStringFunc(str, labelReplacerFn("", "-xxx-"))
+	str = trailingLabelReplacerRegexp.ReplaceAllStringFunc(str, labelReplacerFn("-xxx-", ""))
+	return slug.Make(str)
 }
 
 // Init contains configuration for configuring an *Internal.
@@ -90,11 +120,11 @@ func (i *Internal) labelsFromJob(job *model.Job) (map[string]string, error) {
 
 	return map[string]string{
 		"external-id":   job.InvocationID,
-		"app-name":      slugString(job.AppName),
+		"app-name":      labelValueString(job.AppName),
 		"app-id":        job.AppID,
-		"username":      slugString(job.Submitter),
+		"username":      labelValueString(job.Submitter),
 		"user-id":       job.UserID,
-		"analysis-name": slugString(string(name[:stringmax])),
+		"analysis-name": labelValueString(string(name[:stringmax])),
 		"app-type":      "interactive",
 		"subdomain":     IngressName(job.UserID, job.InvocationID),
 		"login-ip":      ipAddr,
