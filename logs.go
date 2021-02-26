@@ -87,7 +87,7 @@ type VICELogEntry struct {
 	Lines     []string `json:"lines"`
 }
 
-// GetLogs handles requests to access the analysis container logs for a pod in a running
+// LogsHandler handles requests to access the analysis container logs for a pod in a running
 // VICE app. Needs the 'id' and 'pod-name' mux Vars.
 //
 // Query Parameters:
@@ -102,7 +102,7 @@ type VICELogEntry struct {
 //                display timestamps at the beginning of each log line.
 //   container - String containing the name of the container to display logs from. Defaults
 //               the value 'analysis', since this is VICE-specific.
-func (i *Internal) GetLogs(c echo.Context) error {
+func (i *Internal) LogsHandler(c echo.Context) error {
 	var (
 		err        error
 		id         string
@@ -269,9 +269,9 @@ func (i *Internal) getPods(externalID string) ([]retPod, error) {
 	return returnedPods, nil
 }
 
-// GetPods lists the k8s pods associated with the provided external-id. For now
+// PodsHandler lists the k8s pods associated with the provided external-id. For now
 // just returns pod info in the format `{"pods" : [{}]}`
-func (i *Internal) GetPods(c echo.Context) error {
+func (i *Internal) PodsHandler(c echo.Context) error {
 	analysisID := c.Param("analysis-id")
 	user := c.QueryParam("user")
 

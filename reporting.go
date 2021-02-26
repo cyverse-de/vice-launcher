@@ -345,8 +345,8 @@ func (i *Internal) getFilteredDeployments(filter map[string]string) ([]Deploymen
 	return deployments, nil
 }
 
-// FilterableDeployments lists all of the deployments.
-func (i *Internal) FilterableDeployments(c echo.Context) error {
+// FilterableDeploymentsHandler lists all of the deployments.
+func (i *Internal) FilterableDeploymentsHandler(c echo.Context) error {
 	filter := filterMap(c.Request().URL.Query())
 
 	deployments, err := i.getFilteredDeployments(filter)
@@ -375,8 +375,8 @@ func (i *Internal) getFilteredPods(filter map[string]string) ([]PodInfo, error) 
 	return pods, nil
 }
 
-// FilterablePods returns a listing of the pods in a VICE analysis.
-func (i *Internal) FilterablePods(c echo.Context) error {
+// FilterablePodsHandler returns a listing of the pods in a VICE analysis.
+func (i *Internal) FilterablePodsHandler(c echo.Context) error {
 	filter := filterMap(c.Request().URL.Query())
 
 	pods, err := i.getFilteredPods(filter)
@@ -405,8 +405,8 @@ func (i *Internal) getFilteredConfigMaps(filter map[string]string) ([]ConfigMapI
 	return cms, nil
 }
 
-// FilterableConfigMaps lists configmaps in use by VICE apps.
-func (i *Internal) FilterableConfigMaps(c echo.Context) error {
+// FilterableConfigMapsHandler lists configmaps in use by VICE apps.
+func (i *Internal) FilterableConfigMapsHandler(c echo.Context) error {
 	filter := filterMap(c.Request().URL.Query())
 
 	cms, err := i.getFilteredConfigMaps(filter)
@@ -435,8 +435,8 @@ func (i *Internal) getFilteredServices(filter map[string]string) ([]ServiceInfo,
 	return svcs, nil
 }
 
-// FilterableServices lists services in use by VICE apps.
-func (i *Internal) FilterableServices(c echo.Context) error {
+// FilterableServicesHandler lists services in use by VICE apps.
+func (i *Internal) FilterableServicesHandler(c echo.Context) error {
 	filter := filterMap(c.Request().URL.Query())
 
 	svcs, err := i.getFilteredServices(filter)
@@ -465,8 +465,8 @@ func (i *Internal) getFilteredIngresses(filter map[string]string) ([]IngressInfo
 	return ingresses, nil
 }
 
-//FilterableIngresses lists ingresses in use by VICE apps.
-func (i *Internal) FilterableIngresses(c echo.Context) error {
+//FilterableIngressesHandler lists ingresses in use by VICE apps.
+func (i *Internal) FilterableIngressesHandler(c echo.Context) error {
 	filter := filterMap(c.Request().URL.Query())
 
 	ingresses, err := i.getFilteredIngresses(filter)
@@ -489,8 +489,8 @@ type ResourceInfo struct {
 	Ingresses   []IngressInfo    `json:"ingresses"`
 }
 
-// FilterableResources returns all of the k8s resources associated with a VICE analysis.
-func (i *Internal) FilterableResources(c echo.Context) error {
+// FilterableResourcesHandler returns all of the k8s resources associated with a VICE analysis.
+func (i *Internal) FilterableResourcesHandler(c echo.Context) error {
 	filter := filterMap(c.Request().URL.Query())
 
 	deployments, err := i.getFilteredDeployments(filter)

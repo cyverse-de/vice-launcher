@@ -8,8 +8,8 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// GetAsyncData returns data that is generately asynchronously from the job launch.
-func (i *Internal) GetAsyncData(c echo.Context) error {
+// AsyncDataHandler returns data that is generately asynchronously from the job launch.
+func (i *Internal) AsyncDataHandler(c echo.Context) error {
 	externalID := c.QueryParam("external-id")
 	if externalID == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "external-id not set")
