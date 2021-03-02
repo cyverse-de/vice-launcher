@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"database/sql"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -489,42 +490,94 @@ type ResourceInfo struct {
 	Ingresses   []IngressInfo    `json:"ingresses"`
 }
 
-// FilterableResourcesHandler returns all of the k8s resources associated with a VICE analysis.
-func (i *Internal) FilterableResourcesHandler(c echo.Context) error {
-	filter := filterMap(c.Request().URL.Query())
+func (i *Internal) fixUsername(username string) string {
+	if strings.HasSuffix(username, i.UserSuffix) {
+		return username
+	}
+	return fmt.Sprintf("%s%s", username, i.UserSuffix)
+}
 
+func (i *Internal) doResourceListing(filter map[string]string) (*ResourceInfo, error) {
 	deployments, err := i.getFilteredDeployments(filter)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	pods, err := i.getFilteredPods(filter)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	cms, err := i.getFilteredConfigMaps(filter)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	svcs, err := i.getFilteredServices(filter)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	ingresses, err := i.getFilteredIngresses(filter)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, ResourceInfo{
+	return &ResourceInfo{
 		Deployments: deployments,
 		Pods:        pods,
 		ConfigMaps:  cms,
 		Services:    svcs,
 		Ingresses:   ingresses,
-	})
+	}, nil
+}
+
+// FilterableResourcesHandler returns all of the k8s resources associated with a VICE analysis
+// but checks permissions to see if the requesting user has permission to access the resource.
+func (i *Internal) FilterableResourcesHandler(c echo.Context) error {
+	user := c.QueryParam("user")
+	if user == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "user query parameter must be set")
+	}
+
+	// Since some usernames don't come through the labelling process unscathed, we have to use
+	// the user ID.
+	user = i.fixUsername(user)
+	a := apps.NewApps(i.db, i.UserSuffix)
+	userID, err := a.GetUserID(user)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return echo.NewHTTPError(http.StatusNotFound, fmt.Sprintf("user %s not found", user))
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	filter := filterMap(c.Request().URL.Query())
+	delete(filter, "user")
+
+	filter["user-id"] = userID
+
+	log.Debugf("user ID is %s", userID)
+
+	listing, err := i.doResourceListing(filter)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	return c.JSON(http.StatusOK, listing)
+
+}
+
+// AdminFilterableResourcesHandler returns all of the k8s resources associated with a VICE analysis.
+func (i *Internal) AdminFilterableResourcesHandler(c echo.Context) error {
+	filter := filterMap(c.Request().URL.Query())
+
+	listing, err := i.doResourceListing(filter)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	return c.JSON(http.StatusOK, listing)
 }
 
 func populateAnalysisID(a *apps.Apps, existingLabels map[string]string) (map[string]string, error) {

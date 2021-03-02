@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"database/sql"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/cyverse-de/app-exposer/apps"
 	"github.com/cyverse-de/app-exposer/common"
+	"github.com/cyverse-de/app-exposer/permissions"
 	"github.com/gosimple/slug"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
@@ -78,6 +80,7 @@ type Init struct {
 	ViceNamespace                 string
 	JobStatusURL                  string
 	UserSuffix                    string
+	PermissionsURL                string
 }
 
 // Internal contains information and operations for launching VICE apps inside the
@@ -480,6 +483,8 @@ func (i *Internal) AdminExitHandler(c echo.Context) error {
 	return i.doExit(externalID)
 }
 
+// getIDFromHost returns the external ID for the running VICE app, which
+// is assumed to be the same as the name of the ingress.
 func (i *Internal) getIDFromHost(host string) (string, error) {
 	ingressclient := i.clientset.ExtensionsV1beta1().Ingresses(i.ViceNamespace)
 	ingresslist, err := ingressclient.List(metav1.ListOptions{})
@@ -498,11 +503,106 @@ func (i *Internal) getIDFromHost(host string) (string, error) {
 	return "", fmt.Errorf("no ingress found for host %s", host)
 }
 
-// URLReadyHandler handles requests to check the status of a running VICE app in K8s.
+// URLReadyHandler returns whether or not a VICE app is ready
+// for users to access it. This version will check the user's permissions
+// and return an error if they aren't allowed to access the running app.
+func (i *Internal) URLReadyHandler(c echo.Context) error {
+	var (
+		ingressExists bool
+		serviceExists bool
+		podReady      bool
+	)
+
+	user := c.QueryParam("user")
+	if user == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "user query parameter must be set")
+	}
+
+	// Since some usernames don't come through the labelling process unscathed, we have to use
+	// the user ID.
+	fixedUser := i.fixUsername(user)
+	a := apps.NewApps(i.db, i.UserSuffix)
+	_, err := a.GetUserID(fixedUser)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return echo.NewHTTPError(http.StatusNotFound, fmt.Sprintf("user %s not found", fixedUser))
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	host := c.Param("host")
+
+	// Use the name of the ingress to retrieve the externalID
+	id, err := i.getIDFromHost(host)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, err.Error())
+	}
+
+	analysisID, err := a.GetAnalysisIDBySubdomain(host)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	// Make sure the user has permissions to look up info about this analysis.
+	p := &permissions.Permissions{
+		BaseURL: i.PermissionsURL,
+	}
+
+	allowed, err := p.IsAllowed(user, analysisID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	if !allowed {
+		return echo.NewHTTPError(http.StatusForbidden, fmt.Sprintf("user %s cannot access analysis %s", user, analysisID))
+	}
+
+	// If getIDFromHost returns without an error, then the ingress exists
+	// since the ingresses are looked at for the host.
+	ingressExists = true
+
+	set := labels.Set(map[string]string{
+		"external-id": id,
+	})
+
+	listoptions := metav1.ListOptions{
+		LabelSelector: set.AsSelector().String(),
+	}
+
+	// check the service existence
+	svcclient := i.clientset.CoreV1().Services(i.ViceNamespace)
+	svclist, err := svcclient.List(listoptions)
+	if err != nil {
+		return err
+	}
+	if len(svclist.Items) > 0 {
+		serviceExists = true
+	}
+
+	// Check pod status through the deployment
+	depclient := i.clientset.AppsV1().Deployments(i.ViceNamespace)
+	deplist, err := depclient.List(listoptions)
+	if err != nil {
+		return err
+	}
+	for _, dep := range deplist.Items {
+		if dep.Status.ReadyReplicas > 0 {
+			podReady = true
+		}
+	}
+
+	data := map[string]bool{
+		"ready": ingressExists && serviceExists && podReady,
+	}
+
+	return c.JSON(http.StatusOK, data)
+}
+
+// AdminURLReadyHandler handles requests to check the status of a running VICE app in K8s.
 // This will return an overall status and status for the individual containers in
 // the app's pod. Uses the state of the readiness checks in K8s, along with the
 // existence of the various resources created for the app.
-func (i *Internal) URLReadyHandler(c echo.Context) error {
+func (i *Internal) AdminURLReadyHandler(c echo.Context) error {
 	var (
 		ingressExists bool
 		serviceExists bool
@@ -511,6 +611,7 @@ func (i *Internal) URLReadyHandler(c echo.Context) error {
 
 	host := c.Param("host")
 
+	// Use the name of the ingress to retrieve the externalID
 	id, err := i.getIDFromHost(host)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
