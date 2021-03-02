@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/cyverse-de/app-exposer/apps"
+	"github.com/cyverse-de/app-exposer/permissions"
 	"github.com/labstack/echo/v4"
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/apps/v1"
@@ -530,6 +531,89 @@ func (i *Internal) doResourceListing(filter map[string]string) (*ResourceInfo, e
 		Services:    svcs,
 		Ingresses:   ingresses,
 	}, nil
+}
+
+// AdminDescribeAnalysisHandler returns a listing entry for a single analysis
+// asssociated with the host/subdomain passed in as 'host' from the URL.
+func (i *Internal) AdminDescribeAnalysisHandler(c echo.Context) error {
+	host := c.Param("host")
+
+	// Use the name of the ingress to retrieve the externalID
+	id, err := i.getIDFromHost(host)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, err.Error())
+	}
+
+	filter := map[string]string{
+		"subdomain":   host,
+		"external-id": id,
+	}
+
+	listing, err := i.doResourceListing(filter)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, listing)
+
+}
+
+// DescribeAnalysisHandler returns a listing entry for a single analysis associated
+// with the host/subdomain passed in as 'host' from the URL.
+func (i *Internal) DescribeAnalysisHandler(c echo.Context) error {
+	user := c.QueryParam("user")
+	if user == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "user query parameter must be set")
+	}
+
+	// Since some usernames don't come through the labelling process unscathed, we have to use
+	// the user ID.
+	fixedUser := i.fixUsername(user)
+	a := apps.NewApps(i.db, i.UserSuffix)
+	_, err := a.GetUserID(fixedUser)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return echo.NewHTTPError(http.StatusNotFound, fmt.Sprintf("user %s not found", fixedUser))
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	host := c.Param("host")
+
+	// Use the name of the ingress to retrieve the externalID
+	id, err := i.getIDFromHost(host)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, err.Error())
+	}
+
+	analysisID, err := a.GetAnalysisIDBySubdomain(host)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	// Make sure the user has permissions to look up info about this analysis.
+	p := &permissions.Permissions{
+		BaseURL: i.PermissionsURL,
+	}
+
+	allowed, err := p.IsAllowed(user, analysisID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	if !allowed {
+		return echo.NewHTTPError(http.StatusForbidden, fmt.Sprintf("user %s cannot access analysis %s", user, analysisID))
+	}
+
+	filter := map[string]string{
+		"subdomain":   host,
+		"external-id": id,
+	}
+
+	listing, err := i.doResourceListing(filter)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, listing)
 }
 
 // FilterableResourcesHandler returns all of the k8s resources associated with a VICE analysis
