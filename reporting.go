@@ -574,7 +574,7 @@ func (i *Internal) DescribeAnalysisHandler(c echo.Context) error {
 		if err == sql.ErrNoRows {
 			return echo.NewHTTPError(http.StatusNotFound, fmt.Sprintf("user %s not found", fixedUser))
 		}
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		return err
 	}
 
 	host := c.Param("host")
@@ -582,12 +582,12 @@ func (i *Internal) DescribeAnalysisHandler(c echo.Context) error {
 	// Use the name of the ingress to retrieve the externalID
 	id, err := i.getIDFromHost(host)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, err.Error())
+		return err
 	}
 
 	analysisID, err := a.GetAnalysisIDBySubdomain(host)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		return err
 	}
 
 	// Make sure the user has permissions to look up info about this analysis.
@@ -597,7 +597,7 @@ func (i *Internal) DescribeAnalysisHandler(c echo.Context) error {
 
 	allowed, err := p.IsAllowed(user, analysisID)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		return err
 	}
 
 	if !allowed {
@@ -611,7 +611,7 @@ func (i *Internal) DescribeAnalysisHandler(c echo.Context) error {
 
 	listing, err := i.doResourceListing(filter)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		return err
 	}
 	return c.JSON(http.StatusOK, listing)
 }
