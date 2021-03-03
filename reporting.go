@@ -1,12 +1,14 @@
 package internal
 
 import (
+	"database/sql"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
 
 	"github.com/cyverse-de/app-exposer/apps"
+	"github.com/cyverse-de/app-exposer/permissions"
 	"github.com/labstack/echo/v4"
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/apps/v1"
@@ -345,8 +347,8 @@ func (i *Internal) getFilteredDeployments(filter map[string]string) ([]Deploymen
 	return deployments, nil
 }
 
-// FilterableDeployments lists all of the deployments.
-func (i *Internal) FilterableDeployments(c echo.Context) error {
+// FilterableDeploymentsHandler lists all of the deployments.
+func (i *Internal) FilterableDeploymentsHandler(c echo.Context) error {
 	filter := filterMap(c.Request().URL.Query())
 
 	deployments, err := i.getFilteredDeployments(filter)
@@ -375,8 +377,8 @@ func (i *Internal) getFilteredPods(filter map[string]string) ([]PodInfo, error) 
 	return pods, nil
 }
 
-// FilterablePods returns a listing of the pods in a VICE analysis.
-func (i *Internal) FilterablePods(c echo.Context) error {
+// FilterablePodsHandler returns a listing of the pods in a VICE analysis.
+func (i *Internal) FilterablePodsHandler(c echo.Context) error {
 	filter := filterMap(c.Request().URL.Query())
 
 	pods, err := i.getFilteredPods(filter)
@@ -405,8 +407,8 @@ func (i *Internal) getFilteredConfigMaps(filter map[string]string) ([]ConfigMapI
 	return cms, nil
 }
 
-// FilterableConfigMaps lists configmaps in use by VICE apps.
-func (i *Internal) FilterableConfigMaps(c echo.Context) error {
+// FilterableConfigMapsHandler lists configmaps in use by VICE apps.
+func (i *Internal) FilterableConfigMapsHandler(c echo.Context) error {
 	filter := filterMap(c.Request().URL.Query())
 
 	cms, err := i.getFilteredConfigMaps(filter)
@@ -435,8 +437,8 @@ func (i *Internal) getFilteredServices(filter map[string]string) ([]ServiceInfo,
 	return svcs, nil
 }
 
-// FilterableServices lists services in use by VICE apps.
-func (i *Internal) FilterableServices(c echo.Context) error {
+// FilterableServicesHandler lists services in use by VICE apps.
+func (i *Internal) FilterableServicesHandler(c echo.Context) error {
 	filter := filterMap(c.Request().URL.Query())
 
 	svcs, err := i.getFilteredServices(filter)
@@ -465,8 +467,8 @@ func (i *Internal) getFilteredIngresses(filter map[string]string) ([]IngressInfo
 	return ingresses, nil
 }
 
-//FilterableIngresses lists ingresses in use by VICE apps.
-func (i *Internal) FilterableIngresses(c echo.Context) error {
+//FilterableIngressesHandler lists ingresses in use by VICE apps.
+func (i *Internal) FilterableIngressesHandler(c echo.Context) error {
 	filter := filterMap(c.Request().URL.Query())
 
 	ingresses, err := i.getFilteredIngresses(filter)
@@ -489,42 +491,177 @@ type ResourceInfo struct {
 	Ingresses   []IngressInfo    `json:"ingresses"`
 }
 
-// FilterableResources returns all of the k8s resources associated with a VICE analysis.
-func (i *Internal) FilterableResources(c echo.Context) error {
-	filter := filterMap(c.Request().URL.Query())
+func (i *Internal) fixUsername(username string) string {
+	if strings.HasSuffix(username, i.UserSuffix) {
+		return username
+	}
+	return fmt.Sprintf("%s%s", username, i.UserSuffix)
+}
 
+func (i *Internal) doResourceListing(filter map[string]string) (*ResourceInfo, error) {
 	deployments, err := i.getFilteredDeployments(filter)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	pods, err := i.getFilteredPods(filter)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	cms, err := i.getFilteredConfigMaps(filter)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	svcs, err := i.getFilteredServices(filter)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	ingresses, err := i.getFilteredIngresses(filter)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, ResourceInfo{
+	return &ResourceInfo{
 		Deployments: deployments,
 		Pods:        pods,
 		ConfigMaps:  cms,
 		Services:    svcs,
 		Ingresses:   ingresses,
-	})
+	}, nil
+}
+
+// AdminDescribeAnalysisHandler returns a listing entry for a single analysis
+// asssociated with the host/subdomain passed in as 'host' from the URL.
+func (i *Internal) AdminDescribeAnalysisHandler(c echo.Context) error {
+	host := c.Param("host")
+
+	// Use the name of the ingress to retrieve the externalID
+	id, err := i.getIDFromHost(host)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, err.Error())
+	}
+
+	filter := map[string]string{
+		"subdomain":   host,
+		"external-id": id,
+	}
+
+	listing, err := i.doResourceListing(filter)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, listing)
+
+}
+
+// DescribeAnalysisHandler returns a listing entry for a single analysis associated
+// with the host/subdomain passed in as 'host' from the URL.
+func (i *Internal) DescribeAnalysisHandler(c echo.Context) error {
+	user := c.QueryParam("user")
+	if user == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "user query parameter must be set")
+	}
+
+	// Since some usernames don't come through the labelling process unscathed, we have to use
+	// the user ID.
+	fixedUser := i.fixUsername(user)
+	a := apps.NewApps(i.db, i.UserSuffix)
+	_, err := a.GetUserID(fixedUser)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return echo.NewHTTPError(http.StatusNotFound, fmt.Sprintf("user %s not found", fixedUser))
+		}
+		return err
+	}
+
+	host := c.Param("host")
+
+	// Use the name of the ingress to retrieve the externalID
+	id, err := i.getIDFromHost(host)
+	if err != nil {
+		return err
+	}
+
+	analysisID, err := a.GetAnalysisIDBySubdomain(host)
+	if err != nil {
+		return err
+	}
+
+	// Make sure the user has permissions to look up info about this analysis.
+	p := &permissions.Permissions{
+		BaseURL: i.PermissionsURL,
+	}
+
+	allowed, err := p.IsAllowed(user, analysisID)
+	if err != nil {
+		return err
+	}
+
+	if !allowed {
+		return echo.NewHTTPError(http.StatusForbidden, fmt.Sprintf("user %s cannot access analysis %s", user, analysisID))
+	}
+
+	filter := map[string]string{
+		"subdomain":   host,
+		"external-id": id,
+	}
+
+	listing, err := i.doResourceListing(filter)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, listing)
+}
+
+// FilterableResourcesHandler returns all of the k8s resources associated with a VICE analysis
+// but checks permissions to see if the requesting user has permission to access the resource.
+func (i *Internal) FilterableResourcesHandler(c echo.Context) error {
+	user := c.QueryParam("user")
+	if user == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "user query parameter must be set")
+	}
+
+	// Since some usernames don't come through the labelling process unscathed, we have to use
+	// the user ID.
+	user = i.fixUsername(user)
+	a := apps.NewApps(i.db, i.UserSuffix)
+	userID, err := a.GetUserID(user)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return echo.NewHTTPError(http.StatusNotFound, fmt.Sprintf("user %s not found", user))
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	filter := filterMap(c.Request().URL.Query())
+	delete(filter, "user")
+
+	filter["user-id"] = userID
+
+	log.Debugf("user ID is %s", userID)
+
+	listing, err := i.doResourceListing(filter)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	return c.JSON(http.StatusOK, listing)
+
+}
+
+// AdminFilterableResourcesHandler returns all of the k8s resources associated with a VICE analysis.
+func (i *Internal) AdminFilterableResourcesHandler(c echo.Context) error {
+	filter := filterMap(c.Request().URL.Query())
+
+	listing, err := i.doResourceListing(filter)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	return c.JSON(http.StatusOK, listing)
 }
 
 func populateAnalysisID(a *apps.Apps, existingLabels map[string]string) (map[string]string, error) {

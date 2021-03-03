@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"database/sql"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/cyverse-de/app-exposer/apps"
 	"github.com/cyverse-de/app-exposer/common"
+	"github.com/cyverse-de/app-exposer/permissions"
 	"github.com/gosimple/slug"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
@@ -78,6 +80,7 @@ type Init struct {
 	ViceNamespace                 string
 	JobStatusURL                  string
 	UserSuffix                    string
+	PermissionsURL                string
 }
 
 // Internal contains information and operations for launching VICE apps inside the
@@ -289,10 +292,10 @@ func (i *Internal) UpsertDeployment(job *model.Job) error {
 	return nil
 }
 
-// VICELaunchApp is the HTTP handler that orchestrates the launching of a VICE analysis inside
+// LaunchAppHandler is the HTTP handler that orchestrates the launching of a VICE analysis inside
 // the k8s cluster. This get passed to the router to be associated with a route. The Job
 // is passed in as the body of the request.
-func (i *Internal) VICELaunchApp(c echo.Context) error {
+func (i *Internal) LaunchAppHandler(c echo.Context) error {
 	var (
 		job *model.Job
 		err error
@@ -329,16 +332,16 @@ func (i *Internal) VICELaunchApp(c echo.Context) error {
 	return nil
 }
 
-// VICETriggerDownloads handles requests to trigger file downloads.
-func (i *Internal) VICETriggerDownloads(c echo.Context) error {
+// TriggerDownloadsHandler handles requests to trigger file downloads.
+func (i *Internal) TriggerDownloadsHandler(c echo.Context) error {
 	return i.doFileTransfer(c.Param("id"), downloadBasePath, downloadKind, true)
 }
 
-// VICEAdminTriggerDownloads handles requests to trigger file downloads
+// AdminTriggerDownloadsHandler handles requests to trigger file downloads
 // without requiring user information in the request and also operates from
 // the analysis UUID rather than the external ID. For use with tools that
 // require the caller to have administrative privileges.
-func (i *Internal) VICEAdminTriggerDownloads(c echo.Context) error {
+func (i *Internal) AdminTriggerDownloadsHandler(c echo.Context) error {
 	var err error
 
 	analysisID := c.Param("analysis-id")
@@ -351,16 +354,16 @@ func (i *Internal) VICEAdminTriggerDownloads(c echo.Context) error {
 	return i.doFileTransfer(externalID, downloadBasePath, downloadKind, true)
 }
 
-// VICETriggerUploads handles requests to trigger file uploads.
-func (i *Internal) VICETriggerUploads(c echo.Context) error {
+// TriggerUploadsHandler handles requests to trigger file uploads.
+func (i *Internal) TriggerUploadsHandler(c echo.Context) error {
 	return i.doFileTransfer(c.Param("id"), uploadBasePath, uploadKind, true)
 }
 
-// VICEAdminTriggerUploads handles requests to trigger file uploads without
+// AdminTriggerUploadsHandler handles requests to trigger file uploads without
 // requiring user information in the request, while also operating from the
 // analysis UUID rather than the external UUID. For use with tools that
 // require the caller to have administrative privileges.
-func (i *Internal) VICEAdminTriggerUploads(c echo.Context) error {
+func (i *Internal) AdminTriggerUploadsHandler(c echo.Context) error {
 	var err error
 
 	analysisID := c.Param("analysis-id")
@@ -455,19 +458,19 @@ func (i *Internal) doExit(externalID string) error {
 	return nil
 }
 
-// VICEExit terminates the VICE analysis deployment and cleans up
+// ExitHandler terminates the VICE analysis deployment and cleans up
 // resources asscociated with it. Does not save outputs first. Uses
 // the external-id label to find all of the objects in the configured
 // namespace associated with the job. Deletes the following objects:
 // ingresses, services, deployments, and configmaps.
-func (i *Internal) VICEExit(c echo.Context) error {
+func (i *Internal) ExitHandler(c echo.Context) error {
 	return i.doExit(c.Param("id"))
 }
 
-// VICEAdminExit terminates the VICE analysis based on the analysisID and
+// AdminExitHandler terminates the VICE analysis based on the analysisID and
 // and should not require any user information to be provided. Otherwise, the
 // documentation for VICEExit applies here as well.
-func (i *Internal) VICEAdminExit(c echo.Context) error {
+func (i *Internal) AdminExitHandler(c echo.Context) error {
 	var err error
 
 	analysisID := c.Param("analysis-id")
@@ -480,6 +483,8 @@ func (i *Internal) VICEAdminExit(c echo.Context) error {
 	return i.doExit(externalID)
 }
 
+// getIDFromHost returns the external ID for the running VICE app, which
+// is assumed to be the same as the name of the ingress.
 func (i *Internal) getIDFromHost(host string) (string, error) {
 	ingressclient := i.clientset.ExtensionsV1beta1().Ingresses(i.ViceNamespace)
 	ingresslist, err := ingressclient.List(metav1.ListOptions{})
@@ -498,11 +503,106 @@ func (i *Internal) getIDFromHost(host string) (string, error) {
 	return "", fmt.Errorf("no ingress found for host %s", host)
 }
 
-// VICEStatus handles requests to check the status of a running VICE app in K8s.
+// URLReadyHandler returns whether or not a VICE app is ready
+// for users to access it. This version will check the user's permissions
+// and return an error if they aren't allowed to access the running app.
+func (i *Internal) URLReadyHandler(c echo.Context) error {
+	var (
+		ingressExists bool
+		serviceExists bool
+		podReady      bool
+	)
+
+	user := c.QueryParam("user")
+	if user == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "user query parameter must be set")
+	}
+
+	// Since some usernames don't come through the labelling process unscathed, we have to use
+	// the user ID.
+	fixedUser := i.fixUsername(user)
+	a := apps.NewApps(i.db, i.UserSuffix)
+	_, err := a.GetUserID(fixedUser)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return echo.NewHTTPError(http.StatusNotFound, fmt.Sprintf("user %s not found", fixedUser))
+		}
+		return err
+	}
+
+	host := c.Param("host")
+
+	// Use the name of the ingress to retrieve the externalID
+	id, err := i.getIDFromHost(host)
+	if err != nil {
+		return err
+	}
+
+	analysisID, err := a.GetAnalysisIDBySubdomain(host)
+	if err != nil {
+		return err
+	}
+
+	// Make sure the user has permissions to look up info about this analysis.
+	p := &permissions.Permissions{
+		BaseURL: i.PermissionsURL,
+	}
+
+	allowed, err := p.IsAllowed(user, analysisID)
+	if err != nil {
+		return err
+	}
+
+	if !allowed {
+		return echo.NewHTTPError(http.StatusForbidden, fmt.Sprintf("user %s cannot access analysis %s", user, analysisID))
+	}
+
+	// If getIDFromHost returns without an error, then the ingress exists
+	// since the ingresses are looked at for the host.
+	ingressExists = true
+
+	set := labels.Set(map[string]string{
+		"external-id": id,
+	})
+
+	listoptions := metav1.ListOptions{
+		LabelSelector: set.AsSelector().String(),
+	}
+
+	// check the service existence
+	svcclient := i.clientset.CoreV1().Services(i.ViceNamespace)
+	svclist, err := svcclient.List(listoptions)
+	if err != nil {
+		return err
+	}
+	if len(svclist.Items) > 0 {
+		serviceExists = true
+	}
+
+	// Check pod status through the deployment
+	depclient := i.clientset.AppsV1().Deployments(i.ViceNamespace)
+	deplist, err := depclient.List(listoptions)
+	if err != nil {
+		return err
+	}
+	for _, dep := range deplist.Items {
+		if dep.Status.ReadyReplicas > 0 {
+			podReady = true
+		}
+	}
+
+	data := map[string]bool{
+		"ready": ingressExists && serviceExists && podReady,
+	}
+
+	return c.JSON(http.StatusOK, data)
+}
+
+// AdminURLReadyHandler handles requests to check the status of a running VICE app in K8s.
 // This will return an overall status and status for the individual containers in
 // the app's pod. Uses the state of the readiness checks in K8s, along with the
 // existence of the various resources created for the app.
-func (i *Internal) VICEStatus(c echo.Context) error {
+func (i *Internal) AdminURLReadyHandler(c echo.Context) error {
 	var (
 		ingressExists bool
 		serviceExists bool
@@ -511,6 +611,7 @@ func (i *Internal) VICEStatus(c echo.Context) error {
 
 	host := c.Param("host")
 
+	// Use the name of the ingress to retrieve the externalID
 	id, err := i.getIDFromHost(host)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
@@ -557,11 +658,11 @@ func (i *Internal) VICEStatus(c echo.Context) error {
 	return c.JSON(http.StatusOK, data)
 }
 
-// VICESaveAndExit handles requests to save the output files in iRODS and then exit.
+// SaveAndExitHandler handles requests to save the output files in iRODS and then exit.
 // The exit portion will only occur if the save operation succeeds. The operation is
 // performed inside of a goroutine so that the caller isn't waiting for hours/days for
 // output file transfers to complete.
-func (i *Internal) VICESaveAndExit(c echo.Context) error {
+func (i *Internal) SaveAndExitHandler(c echo.Context) error {
 	log.Info("save and exit called")
 
 	// Since file transfers can take a while, we should do this asynchronously by default.
@@ -591,11 +692,11 @@ func (i *Internal) VICESaveAndExit(c echo.Context) error {
 	return nil
 }
 
-// VICEAdminSaveAndExit handles requests to save the output files in iRODS and
+// AdminSaveAndExitHandler handles requests to save the output files in iRODS and
 // then exit. This version of the call operates based on the analysis ID and does
 // not require user information to be required by the caller. Otherwise, the docs
 // for the VICESaveAndExit function apply here as well.
-func (i *Internal) VICEAdminSaveAndExit(c echo.Context) error {
+func (i *Internal) AdminSaveAndExitHandler(c echo.Context) error {
 	log.Info("admin save and exit called")
 
 	// Since file transfers can take a while, we should do this asynchronously by default.
@@ -654,8 +755,8 @@ const getUserIDSQL = `
 	 WHERE username = $1
 `
 
-// VICETimeLimitUpdate handles requests to update the time limit on an already running VICE app.
-func (i *Internal) VICETimeLimitUpdate(c echo.Context) error {
+// TimeLimitUpdateHandler handles requests to update the time limit on an already running VICE app.
+func (i *Internal) TimeLimitUpdateHandler(c echo.Context) error {
 	log.Info("update time limit called")
 
 	var (
@@ -688,9 +789,9 @@ func (i *Internal) VICETimeLimitUpdate(c echo.Context) error {
 
 }
 
-// VICEAdminTimeLimitUpdate is basically the same as VICETimeLimitUpdate
+// AdminTimeLimitUpdateHandler is basically the same as VICETimeLimitUpdate
 // except that it doesn't require user information in the request.
-func (i *Internal) VICEAdminTimeLimitUpdate(c echo.Context) error {
+func (i *Internal) AdminTimeLimitUpdateHandler(c echo.Context) error {
 	var (
 		err  error
 		id   string
@@ -717,8 +818,8 @@ func (i *Internal) VICEAdminTimeLimitUpdate(c echo.Context) error {
 	return c.JSON(http.StatusOK, outputMap)
 }
 
-// VICEGetTimeLimit implements the handler for getting the current time limit from the database.
-func (i *Internal) VICEGetTimeLimit(c echo.Context) error {
+// GetTimeLimitHandler implements the handler for getting the current time limit from the database.
+func (i *Internal) GetTimeLimitHandler(c echo.Context) error {
 	log.Info("get time limit called")
 
 	var (
@@ -757,9 +858,9 @@ func (i *Internal) VICEGetTimeLimit(c echo.Context) error {
 	return c.JSON(http.StatusOK, outputMap)
 }
 
-// VICEAdminGetTimeLimit is the same as VICEGetTimeLimit but doesn't require
+// AdminGetTimeLimitHandler is the same as VICEGetTimeLimit but doesn't require
 // any user information in the request.
-func (i *Internal) VICEAdminGetTimeLimit(c echo.Context) error {
+func (i *Internal) AdminGetTimeLimitHandler(c echo.Context) error {
 	log.Info("get time limit called")
 
 	var (
@@ -845,9 +946,9 @@ func (i *Internal) updateTimeLimit(user, id string) (map[string]string, error) {
 	return outputMap, nil
 }
 
-// VICEAdminGetExternalID returns the external ID associated with the analysis ID.
+// AdminGetExternalIDHandler returns the external ID associated with the analysis ID.
 // There is only one external ID for each VICE analysis, unlike non-VICE analyses.
-func (i *Internal) VICEAdminGetExternalID(c echo.Context) error {
+func (i *Internal) AdminGetExternalIDHandler(c echo.Context) error {
 	var (
 		err        error
 		analysisID string
