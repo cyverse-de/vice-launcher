@@ -545,6 +545,7 @@ func (i *Internal) getDeployment(job *model.Job) (*appsv1.Deployment, error) {
 					Labels: labels,
 				},
 				Spec: apiv1.PodSpec{
+	                                Hostname:                     IngressName(job.UserID, job.InvocationID),
 					RestartPolicy:                apiv1.RestartPolicy("Always"),
 					Volumes:                      i.deploymentVolumes(job),
 					InitContainers:               i.initContainers(job),
