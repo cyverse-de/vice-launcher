@@ -572,12 +572,6 @@ func (i *Internal) DescribeAnalysisHandler(c echo.Context) error {
 
 	host := c.Param("host")
 
-	// Use the name of the ingress to retrieve the externalID
-	id, err := i.getIDFromHost(host)
-	if err != nil {
-		return err
-	}
-
 	analysisID, err := a.GetAnalysisIDBySubdomain(host)
 	if err != nil {
 		return err
@@ -598,8 +592,7 @@ func (i *Internal) DescribeAnalysisHandler(c echo.Context) error {
 	}
 
 	filter := map[string]string{
-		"subdomain":   host,
-		"external-id": id,
+		"subdomain": host,
 	}
 
 	listing, err := i.doResourceListing(filter)
