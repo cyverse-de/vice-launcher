@@ -553,6 +553,7 @@ func (i *Internal) AdminDescribeAnalysisHandler(c echo.Context) error {
 // DescribeAnalysisHandler returns a listing entry for a single analysis associated
 // with the host/subdomain passed in as 'host' from the URL.
 func (i *Internal) DescribeAnalysisHandler(c echo.Context) error {
+	log.Info("in DescribeAnalysisHandler")
 	user := c.QueryParam("user")
 	if user == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "user query parameter must be set")
@@ -572,25 +573,6 @@ func (i *Internal) DescribeAnalysisHandler(c echo.Context) error {
 
 	host := c.Param("host")
 
-	analysisID, err := a.GetAnalysisIDBySubdomain(host)
-	if err != nil {
-		return err
-	}
-
-	// Make sure the user has permissions to look up info about this analysis.
-	p := &permissions.Permissions{
-		BaseURL: i.PermissionsURL,
-	}
-
-	allowed, err := p.IsAllowed(user, analysisID)
-	if err != nil {
-		return err
-	}
-
-	if !allowed {
-		return echo.NewHTTPError(http.StatusForbidden, fmt.Sprintf("user %s cannot access analysis %s", user, analysisID))
-	}
-
 	filter := map[string]string{
 		"subdomain": host,
 	}
@@ -599,6 +581,33 @@ func (i *Internal) DescribeAnalysisHandler(c echo.Context) error {
 	if err != nil {
 		return err
 	}
+
+	// the permissions checks occur after the listing because it's possible for the listing to happen
+	// before the subdomain is set in the database, causing an error to get percolated up to the UI.
+	// Waiting until the Deployments list contains at least one item should guarantee that the subdomain
+	// is set in the database.
+	if len(listing.Deployments) > 0 {
+		externalID := listing.Deployments[0].ExternalID
+		analysisID, err := a.GetAnalysisIDByExternalID(externalID)
+		if err != nil {
+			return err
+		}
+
+		// Make sure the user has permissions to look up info about this analysis.
+		p := &permissions.Permissions{
+			BaseURL: i.PermissionsURL,
+		}
+
+		allowed, err := p.IsAllowed(user, analysisID)
+		if err != nil {
+			return err
+		}
+
+		if !allowed {
+			return echo.NewHTTPError(http.StatusForbidden, fmt.Sprintf("user %s cannot access analysis %s", user, analysisID))
+		}
+	}
+
 	return c.JSON(http.StatusOK, listing)
 }
 

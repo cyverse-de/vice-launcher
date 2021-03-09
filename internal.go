@@ -538,25 +538,6 @@ func (i *Internal) URLReadyHandler(c echo.Context) error {
 		return err
 	}
 
-	analysisID, err := a.GetAnalysisIDBySubdomain(host)
-	if err != nil {
-		return err
-	}
-
-	// Make sure the user has permissions to look up info about this analysis.
-	p := &permissions.Permissions{
-		BaseURL: i.PermissionsURL,
-	}
-
-	allowed, err := p.IsAllowed(user, analysisID)
-	if err != nil {
-		return err
-	}
-
-	if !allowed {
-		return echo.NewHTTPError(http.StatusForbidden, fmt.Sprintf("user %s cannot access analysis %s", user, analysisID))
-	}
-
 	// If getIDFromHost returns without an error, then the ingress exists
 	// since the ingresses are looked at for the host.
 	ingressExists = true
@@ -593,6 +574,25 @@ func (i *Internal) URLReadyHandler(c echo.Context) error {
 
 	data := map[string]bool{
 		"ready": ingressExists && serviceExists && podReady,
+	}
+
+	analysisID, err := a.GetAnalysisIDByExternalID(id)
+	if err != nil {
+		return err
+	}
+
+	// Make sure the user has permissions to look up info about this analysis.
+	p := &permissions.Permissions{
+		BaseURL: i.PermissionsURL,
+	}
+
+	allowed, err := p.IsAllowed(user, analysisID)
+	if err != nil {
+		return err
+	}
+
+	if !allowed {
+		return echo.NewHTTPError(http.StatusForbidden, fmt.Sprintf("user %s cannot access analysis %s", user, analysisID))
 	}
 
 	return c.JSON(http.StatusOK, data)
