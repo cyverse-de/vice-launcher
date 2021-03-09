@@ -538,15 +538,8 @@ func (i *Internal) doResourceListing(filter map[string]string) (*ResourceInfo, e
 func (i *Internal) AdminDescribeAnalysisHandler(c echo.Context) error {
 	host := c.Param("host")
 
-	// Use the name of the ingress to retrieve the externalID
-	id, err := i.getIDFromHost(host)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, err.Error())
-	}
-
 	filter := map[string]string{
-		"subdomain":   host,
-		"external-id": id,
+		"subdomain": host,
 	}
 
 	listing, err := i.doResourceListing(filter)
