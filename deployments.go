@@ -121,6 +121,10 @@ func (i *Internal) viceProxyCommand(job *model.Job) []string {
 		"--external-id", job.InvocationID,
 		"--get-analysis-id-base", fmt.Sprintf("http://%s.%s", i.GetAnalysisIDService, i.VICEBackendNamespace),
 		"--check-resource-access-base", fmt.Sprintf("http://%s.%s", i.CheckResourceAccessService, i.VICEBackendNamespace),
+		"--keycloak-base-url", i.KeycloakBaseURL,
+		"--keycloak-realm", i.KeycloakRealm,
+		"--keycloak-client-id", i.KeycloakClientID,
+		"--keycloak-client-secret", i.KeycloakClientSecret,
 	}
 
 	return output
