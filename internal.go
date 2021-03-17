@@ -81,6 +81,10 @@ type Init struct {
 	JobStatusURL                  string
 	UserSuffix                    string
 	PermissionsURL                string
+	KeycloakBaseURL               string
+	KeycloakRealm                 string
+	KeycloakClientID              string
+	KeycloakClientSecret          string
 }
 
 // Internal contains information and operations for launching VICE apps inside the
