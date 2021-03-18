@@ -54,12 +54,12 @@ func (i *Internal) deploymentVolumes(job *model.Job) []apiv1.Volume {
 	}
 
 	if i.UseCSIDriver {
-		volumeSources, err := i.getPersistentVolumeSources(job)
+		volumeSource, err := i.getPersistentVolumeSource(job)
 		if err != nil {
 			log.Warn(err)
 		} else {
-			if len(volumeSources) > 0 {
-				output = append(output, volumeSources...)
+			if volumeSource != nil {
+				output = append(output, *volumeSource)
 			}
 		}
 	} else {
@@ -309,11 +309,11 @@ func (i *Internal) defineAnalysisContainer(job *model.Job) apiv1.Container {
 
 	volumeMounts := []apiv1.VolumeMount{}
 	if i.UseCSIDriver {
-		persistentVolumeMounts, err := i.getPersistentVolumeMounts(job)
+		persistentVolumeMount, err := i.getPersistentVolumeMount(job)
 		if err != nil {
 			log.Warn(err)
 		} else {
-			volumeMounts = append(volumeMounts, persistentVolumeMounts...)
+			volumeMounts = append(volumeMounts, *persistentVolumeMount)
 		}
 	} else {
 		volumeMounts = append(volumeMounts, apiv1.VolumeMount{
@@ -549,7 +549,7 @@ func (i *Internal) getDeployment(job *model.Job) (*appsv1.Deployment, error) {
 					Labels: labels,
 				},
 				Spec: apiv1.PodSpec{
-	                                Hostname:                     IngressName(job.UserID, job.InvocationID),
+					Hostname:                     IngressName(job.UserID, job.InvocationID),
 					RestartPolicy:                apiv1.RestartPolicy("Always"),
 					Volumes:                      i.deploymentVolumes(job),
 					InitContainers:               i.initContainers(job),
