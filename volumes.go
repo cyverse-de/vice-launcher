@@ -47,11 +47,11 @@ func (i *Internal) getInputPathMappings(job *model.Job) ([]IRODSFSPathMapping, e
 			if len(irodsPath) > 0 {
 
 				resourceType := "file"
-				if stepInput.Type == "FileInput" || strings.ToLower(stepInput.Type) == "fileinput" {
+				if strings.ToLower(stepInput.Type) == "fileinput" {
 					resourceType = "file"
-				} else if stepInput.Type == "MultiFileSelector" || strings.ToLower(stepInput.Type) == "multifileselector" {
+				} else if strings.ToLower(stepInput.Type) == "multifileselector" {
 					resourceType = "file"
-				} else if stepInput.Type == "FolderInput" || strings.ToLower(stepInput.Type) == "folderinput" {
+				} else if strings.ToLower(stepInput.Type) == "folderinput" {
 					resourceType = "dir"
 				} else {
 					// unknown
