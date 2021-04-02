@@ -18,9 +18,11 @@ var (
 
 // PathMapping ...
 type IRODSFSPathMapping struct {
-	IRODSPath    string `yaml:"irods_path" json:"irods_path"`
-	MappingPath  string `yaml:"mapping_path" json:"mapping_path"`
-	ResourceType string `yaml:"resource_type" json:"resource_type"` // file or dir
+	IRODSPath      string `yaml:"irods_path" json:"irods_path"`
+	MappingPath    string `yaml:"mapping_path" json:"mapping_path"`
+	ResourceType   string `yaml:"resource_type" json:"resource_type"` // file or dir
+	CreateDir      bool   `yaml:"create_dir" json:"create_dir"`
+	IgnoreNotExist bool   `yaml:"ignore_not_exist" json:"ignore_not_exist"`
 }
 
 func (i *Internal) getCSIVolumeHandle(job *model.Job) string {
@@ -45,7 +47,6 @@ func (i *Internal) getInputPathMappings(job *model.Job) ([]IRODSFSPathMapping, e
 		for _, stepInput := range step.Input {
 			irodsPath := stepInput.IRODSPath()
 			if len(irodsPath) > 0 {
-
 				resourceType := "file"
 				if strings.ToLower(stepInput.Type) == "fileinput" {
 					resourceType = "file"
@@ -67,9 +68,11 @@ func (i *Internal) getInputPathMappings(job *model.Job) ([]IRODSFSPathMapping, e
 				mappingMap[mountPath] = irodsPath
 
 				mapping := IRODSFSPathMapping{
-					IRODSPath:    irodsPath,
-					MappingPath:  mountPath,
-					ResourceType: resourceType,
+					IRODSPath:      irodsPath,
+					MappingPath:    mountPath,
+					ResourceType:   resourceType,
+					CreateDir:      false,
+					IgnoreNotExist: true,
 				}
 
 				mappings = append(mappings, mapping)
@@ -83,9 +86,11 @@ func (i *Internal) getInputPathMappings(job *model.Job) ([]IRODSFSPathMapping, e
 func (i *Internal) getOutputPathMapping(job *model.Job) IRODSFSPathMapping {
 	// mount a single collection for output
 	return IRODSFSPathMapping{
-		IRODSPath:    job.OutputDirectory(),
-		MappingPath:  csiDriverOutputVolumeMountPath,
-		ResourceType: "dir",
+		IRODSPath:      job.OutputDirectory(),
+		MappingPath:    csiDriverOutputVolumeMountPath,
+		ResourceType:   "dir",
+		CreateDir:      true,
+		IgnoreNotExist: false,
 	}
 }
 
