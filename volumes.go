@@ -179,7 +179,6 @@ func (i *Internal) getPersistentVolumeClaim(job *model.Job) (*apiv1.PersistentVo
 
 		storageclassname := csiDriverStorageClassName
 
-		// input - can be multiple
 		volumeClaim := &apiv1.PersistentVolumeClaim{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:   i.getCSIVolumeClaimName(job),
@@ -213,7 +212,6 @@ func (i *Internal) getPersistentVolumeClaim(job *model.Job) (*apiv1.PersistentVo
 // not call the k8s API.
 func (i *Internal) getPersistentVolumeSource(job *model.Job) (*apiv1.Volume, error) {
 	if i.UseCSIDriver {
-		// input - can be multiple
 		volume := &apiv1.Volume{
 			Name: i.getCSIVolumeClaimName(job),
 			VolumeSource: apiv1.VolumeSource{
@@ -232,11 +230,9 @@ func (i *Internal) getPersistentVolumeSource(job *model.Job) (*apiv1.Volume, err
 // not call the k8s API.
 func (i *Internal) getPersistentVolumeMount(job *model.Job) (*apiv1.VolumeMount, error) {
 	if i.UseCSIDriver {
-		// input - can be multiple
 		volumeMount := &apiv1.VolumeMount{
 			Name:      i.getCSIVolumeClaimName(job),
 			MountPath: fmt.Sprintf("/%s", csiDriverLocalMountPath),
-			ReadOnly:  true,
 		}
 		return volumeMount, nil
 	}
