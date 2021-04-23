@@ -44,7 +44,7 @@ func (i *Internal) getInputPathMappings(job *model.Job) ([]IRODSFSPathMapping, e
 	mappingMap := map[string]string{}
 
 	for _, step := range job.Steps {
-		for _, stepInput := range step.Input {
+		for _, stepInput := range step.Config.Inputs {
 			irodsPath := stepInput.IRODSPath()
 			if len(irodsPath) > 0 {
 				resourceType := "file"
@@ -63,7 +63,7 @@ func (i *Internal) getInputPathMappings(job *model.Job) ([]IRODSFSPathMapping, e
 				// check if mountPath is already used by other input
 				if existingIRODSPath, ok := mappingMap[mountPath]; ok {
 					// exists - error
-					return nil, fmt.Errorf("input file %s is trying to mount at %s that is already used by - %s", irodsPath, mountPath, existingIRODSPath)
+					return nil, fmt.Errorf("tried to mount an input file %s at %s already used by - %s", irodsPath, mountPath, existingIRODSPath)
 				}
 				mappingMap[mountPath] = irodsPath
 
