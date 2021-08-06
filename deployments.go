@@ -486,6 +486,11 @@ func (i *Internal) deploymentContainers(job *model.Job) []apiv1.Container {
 	return output
 }
 
+// imagePullSecrets creates an array of LocalObjectReference that refer to any configured secrets to use for pulling images
+func (i *Internal) imagePullSecrets(_ *model.Job) []apiv1.LocalObjectReference {
+	return []apiv1.LocalObjectReference{}
+}
+
 // getDeployment assembles and returns the Deployment for the VICE analysis. It does
 // not call the k8s API.
 func (i *Internal) getDeployment(job *model.Job) (*appsv1.Deployment, error) {
@@ -554,6 +559,7 @@ func (i *Internal) getDeployment(job *model.Job) (*appsv1.Deployment, error) {
 					Volumes:                      i.deploymentVolumes(job),
 					InitContainers:               i.initContainers(job),
 					Containers:                   i.deploymentContainers(job),
+					ImagePullSecrets:             i.imagePullSecrets(job),
 					AutomountServiceAccountToken: &autoMount,
 					SecurityContext: &apiv1.PodSecurityContext{
 						RunAsUser:  int64Ptr(int64(job.Steps[0].Component.Container.UID)),
