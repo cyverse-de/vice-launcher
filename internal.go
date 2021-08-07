@@ -68,6 +68,7 @@ type Init struct {
 	UseCSIDriver                  bool
 	InputPathListIdentifier       string
 	TicketInputPathListIdentifier string
+	ImagePullSecretName           string
 	ViceProxyImage                string
 	CASBaseURL                    string
 	FrontendBaseURL               string

@@ -486,8 +486,16 @@ func (i *Internal) deploymentContainers(job *model.Job) []apiv1.Container {
 	return output
 }
 
-// imagePullSecrets creates an array of LocalObjectReference that refer to any configured secrets to use for pulling images
+// imagePullSecrets creates an array of LocalObjectReference that refer to any
+// configured secrets to use for pulling images This is passed the job because
+// it may be advantageous, in the future, to add secrets depending on the
+// images actually needed by the job, but at present this uses a static value
 func (i *Internal) imagePullSecrets(_ *model.Job) []apiv1.LocalObjectReference {
+	if i.ImagePullSecretName != "" {
+		return []apiv1.LocalObjectReference{
+			{Name: i.ImagePullSecretName},
+		}
+	}
 	return []apiv1.LocalObjectReference{}
 }
 
