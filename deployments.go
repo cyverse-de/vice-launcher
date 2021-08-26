@@ -54,11 +54,11 @@ func (i *Internal) deploymentVolumes(job *model.Job) []apiv1.Volume {
 	}
 
 	if i.UseCSIDriver {
-		volumeSource, err := i.getPersistentVolumeSource(job)
+		volumeSources, err := i.getPersistentVolumeSources(job)
 		if err != nil {
 			log.Warn(err)
 		} else {
-			if volumeSource != nil {
+			for _, volumeSource := range volumeSources {
 				output = append(output, *volumeSource)
 			}
 		}
@@ -309,11 +309,13 @@ func (i *Internal) defineAnalysisContainer(job *model.Job) apiv1.Container {
 
 	volumeMounts := []apiv1.VolumeMount{}
 	if i.UseCSIDriver {
-		persistentVolumeMount, err := i.getPersistentVolumeMount(job)
+		persistentVolumeMounts, err := i.getPersistentVolumeMounts(job)
 		if err != nil {
 			log.Warn(err)
 		} else {
-			volumeMounts = append(volumeMounts, *persistentVolumeMount)
+			for _, persistentVolumeMount := range persistentVolumeMounts {
+				volumeMounts = append(volumeMounts, *persistentVolumeMount)
+			}
 		}
 	} else {
 		volumeMounts = append(volumeMounts, apiv1.VolumeMount{

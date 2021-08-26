@@ -218,45 +218,51 @@ func (i *Internal) UpsertDeployment(job *model.Job) error {
 		}
 	}
 
-	// Create the persistent volume and persistent volume claim for the job.
-	volume, err := i.getPersistentVolume(job)
+	// Create the persistent volumes and persistent volume claims for the job.
+	volumes, err := i.getPersistentVolumes(job)
 	if err != nil {
 		return err
 	}
 
-	volumeclaim, err := i.getPersistentVolumeClaim(job)
+	volumeclaims, err := i.getPersistentVolumeClaims(job)
 	if err != nil {
 		return err
 	}
 
-	if volume != nil {
+	if len(volumes) > 0 {
 		pvclient := i.clientset.CoreV1().PersistentVolumes()
-		_, err = pvclient.Get(volume.GetName(), metav1.GetOptions{})
-		if err != nil {
-			_, err = pvclient.Create(volume)
+
+		for _, volume := range volumes {
+			_, err = pvclient.Get(volume.GetName(), metav1.GetOptions{})
 			if err != nil {
-				return err
-			}
-		} else {
-			_, err = pvclient.Update(volume)
-			if err != nil {
-				return err
+				_, err = pvclient.Create(volume)
+				if err != nil {
+					return err
+				}
+			} else {
+				_, err = pvclient.Update(volume)
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}
 
-	if volumeclaim != nil {
+	if len(volumeclaims) > 0 {
 		pvcclient := i.clientset.CoreV1().PersistentVolumeClaims(i.ViceNamespace)
-		_, err = pvcclient.Get(volumeclaim.GetName(), metav1.GetOptions{})
-		if err != nil {
-			_, err = pvcclient.Create(volumeclaim)
+
+		for _, volumeClaim := range volumeclaims {
+			_, err = pvcclient.Get(volumeClaim.GetName(), metav1.GetOptions{})
 			if err != nil {
-				return err
-			}
-		} else {
-			_, err = pvcclient.Update(volumeclaim)
-			if err != nil {
-				return err
+				_, err = pvcclient.Create(volumeClaim)
+				if err != nil {
+					return err
+				}
+			} else {
+				_, err = pvcclient.Update(volumeClaim)
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}
