@@ -3,7 +3,7 @@ package internal
 import (
 	"fmt"
 
-	"gopkg.in/cyverse-de/model.v5"
+	"github.com/cyverse-de/model"
 
 	appsv1 "k8s.io/api/apps/v1"
 	apiv1 "k8s.io/api/core/v1"

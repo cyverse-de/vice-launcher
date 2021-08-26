@@ -1,10 +1,10 @@
 package internal
 
 import (
+	"bytes"
 	"fmt"
 
-	jobtmpl "github.com/cyverse-de/job-templates"
-	"gopkg.in/cyverse-de/model.v5"
+	"github.com/cyverse-de/model"
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -13,6 +13,18 @@ import (
 // of paths that should be excluded from file uploads to iRODS by porklock.
 func excludesConfigMapName(job *model.Job) string {
 	return fmt.Sprintf("excludes-file-%s", job.InvocationID)
+}
+
+// excludesFileContents returns a *bytes.Buffer containing the contents of an
+// file exclusion list that gets passed to porklock to prevent it from uploading
+// content. It's possible that the buffer is empty, but it shouldn't be nil.
+func excludesFileContents(job *model.Job) *bytes.Buffer {
+	var output bytes.Buffer
+
+	for _, p := range job.ExcludeArguments() {
+		output.WriteString(fmt.Sprintf("%s\n", p))
+	}
+	return &output
 }
 
 // excludesConfigMap returns the ConfigMap containing the list of paths
@@ -31,7 +43,7 @@ func (i *Internal) excludesConfigMap(job *model.Job) (*apiv1.ConfigMap, error) {
 			Labels: labels,
 		},
 		Data: map[string]string{
-			excludesFileName: jobtmpl.ExcludesFileContents(job).String(),
+			excludesFileName: excludesFileContents(job).String(),
 		},
 	}, nil
 }
@@ -41,6 +53,30 @@ func (i *Internal) excludesConfigMap(job *model.Job) (*apiv1.ConfigMap, error) {
 // as input files for the VICE analysis.
 func inputPathListConfigMapName(job *model.Job) string {
 	return fmt.Sprintf("input-path-list-%s", job.InvocationID)
+}
+
+// inputPathListContents returns a *bytes.Buffer containing the contents of a
+// input path list file. Does not write out the contents to a file. Returns
+// (nil, nil) if there aren't any inputs without tickets associated with the
+// Job.
+func inputPathListContents(job *model.Job, pathListIdentifier, ticketsPathListIdentifier string) (*bytes.Buffer, error) {
+	buffer := bytes.NewBufferString("")
+
+	// Add the path list identifier.
+	_, err := fmt.Fprintf(buffer, "%s\n", pathListIdentifier)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add the list of paths.
+	for _, input := range job.FilterInputsWithTickets() {
+		_, err = fmt.Fprintf(buffer, "%s\n", input.IRODSPath())
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return buffer, nil
 }
 
 // inputPathListConfigMap returns the ConfigMap object containing the the
@@ -53,7 +89,7 @@ func (i *Internal) inputPathListConfigMap(job *model.Job) (*apiv1.ConfigMap, err
 		return nil, err
 	}
 
-	fileContents, err := jobtmpl.InputPathListContents(job, i.InputPathListIdentifier, i.TicketInputPathListIdentifier)
+	fileContents, err := inputPathListContents(job, i.InputPathListIdentifier, i.TicketInputPathListIdentifier)
 	if err != nil {
 		return nil, err
 	}
