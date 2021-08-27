@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gopkg.in/cyverse-de/model.v5"
+	"github.com/cyverse-de/model"
 	apiv1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -43,6 +43,7 @@ func (i *Internal) getInputPathMappings(job *model.Job) ([]IRODSFSPathMapping, e
 	// key = mount path, val = irods path
 	mappingMap := map[string]string{}
 
+	// Mount the input and output files.
 	for _, step := range job.Steps {
 		for _, stepInput := range step.Config.Inputs {
 			irodsPath := stepInput.IRODSPath()
@@ -83,6 +84,16 @@ func (i *Internal) getInputPathMappings(job *model.Job) ([]IRODSFSPathMapping, e
 
 }
 
+func (i *Internal) getHomePathMapping(job *model.Job) IRODSFSPathMapping {
+	return IRODSFSPathMapping{
+		IRODSPath:      job.UserHome,
+		MappingPath:    fmt.Sprintf("/%s", job.Submitter),
+		ResourceType:   "dir",
+		CreateDir:      false,
+		IgnoreNotExist: false,
+	}
+}
+
 func (i *Internal) getOutputPathMapping(job *model.Job) IRODSFSPathMapping {
 	// mount a single collection for output
 	return IRODSFSPathMapping{
@@ -115,6 +126,11 @@ func (i *Internal) getPersistentVolume(job *model.Job) (*apiv1.PersistentVolume,
 			return nil, err
 		}
 		pathMappings = append(pathMappings, inputPathMappings...)
+
+		if job.UserHome != "" {
+			homePathMapping := i.getHomePathMapping(job)
+			pathMappings = append(pathMappings, homePathMapping)
+		}
 
 		outputPathMapping := i.getOutputPathMapping(job)
 		pathMappings = append(pathMappings, outputPathMapping)

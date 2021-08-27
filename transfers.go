@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/cyverse-de/model.v5"
+	"github.com/cyverse-de/model"
 
 	"github.com/pkg/errors"
 

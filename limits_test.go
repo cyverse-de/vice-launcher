@@ -8,7 +8,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
-	"gopkg.in/cyverse-de/model.v5"
+	"github.com/cyverse-de/model"
 	v1 "k8s.io/api/apps/v1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
