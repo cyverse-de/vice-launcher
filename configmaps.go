@@ -69,7 +69,7 @@ func inputPathListContents(job *model.Job, pathListIdentifier, ticketsPathListId
 	}
 
 	// Add the list of paths.
-	for _, input := range job.FilterInputsWithTickets() {
+	for _, input := range job.FilterInputsWithoutTickets() {
 		_, err = fmt.Fprintf(buffer, "%s\n", input.IRODSPath())
 		if err != nil {
 			return nil, err
