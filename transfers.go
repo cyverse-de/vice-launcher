@@ -294,7 +294,6 @@ func (i *Internal) doFileTransfer(externalID, reqpath, kind string, async bool) 
 						log.Error(err)
 					}
 
-					break
 				case UploadingStatus:
 					if !sentUploadStatus {
 						msg := fmt.Sprintf("%s is in progress for job %s", kind, externalID)
@@ -307,7 +306,6 @@ func (i *Internal) doFileTransfer(externalID, reqpath, kind string, async bool) 
 
 						sentUploadStatus = true
 					}
-					break
 				case DownloadingStatus:
 					if !sentDownloadStatus {
 						msg := fmt.Sprintf("%s is in progress for job %s", kind, externalID)
@@ -320,7 +318,6 @@ func (i *Internal) doFileTransfer(externalID, reqpath, kind string, async bool) 
 
 						sentDownloadStatus = true
 					}
-					break
 				default:
 					err = fmt.Errorf("unknown status from %s: %s", svc.Spec.ClusterIP, transferObj.Status)
 

@@ -61,7 +61,7 @@ func (i *Internal) getInputPathMappings(job *model.Job) ([]IRODSFSPathMapping, e
 		for _, stepInput := range step.Config.Inputs {
 			irodsPath := stepInput.IRODSPath()
 			if len(irodsPath) > 0 {
-				resourceType := "file"
+				var resourceType string
 				if strings.ToLower(stepInput.Type) == "fileinput" {
 					resourceType = "file"
 				} else if strings.ToLower(stepInput.Type) == "multifileselector" {

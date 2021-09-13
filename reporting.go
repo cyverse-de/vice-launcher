@@ -857,30 +857,22 @@ func (i *Internal) ApplyAsyncLabels() []error {
 
 	labelDepsErrors := i.relabelDeployments()
 	if len(labelDepsErrors) > 0 {
-		for _, e := range labelDepsErrors {
-			errors = append(errors, e)
-		}
+		errors = append(errors, labelDepsErrors...)
 	}
 
 	labelCMErrors := i.relabelConfigMaps()
 	if len(labelCMErrors) > 0 {
-		for _, e := range labelCMErrors {
-			errors = append(errors, e)
-		}
+		errors = append(errors, labelCMErrors...)
 	}
 
 	labelSVCErrors := i.relabelServices()
 	if len(labelSVCErrors) > 0 {
-		for _, e := range labelSVCErrors {
-			errors = append(errors, e)
-		}
+		errors = append(errors, labelSVCErrors...)
 	}
 
 	labelIngressesErrors := i.relabelIngresses()
 	if len(labelIngressesErrors) > 0 {
-		for _, e := range labelIngressesErrors {
-			errors = append(errors, e)
-		}
+		errors = append(errors, labelIngressesErrors...)
 	}
 
 	return errors
@@ -898,12 +890,9 @@ func (i *Internal) ApplyAsyncLabelsHandler(c echo.Context) error {
 			fmt.Fprintf(&errMsg, "%s\n", err.Error())
 		}
 
-		c.String(http.StatusInternalServerError, errMsg.String())
-	} else {
-		c.NoContent(http.StatusOK)
+		return c.String(http.StatusInternalServerError, errMsg.String())
 	}
-
-	return nil
+	return c.NoContent(http.StatusOK)
 }
 
 // GetAsyncData returns the data that would be applied as labels as a

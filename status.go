@@ -136,7 +136,8 @@ func (i *Internal) MonitorVICEEvents() {
 
 			deploymentInformer := factory.Apps().V1().Deployments().Informer()
 			deploymentInformerStop := make(chan struct{})
-			defer close(deploymentInformerStop)
+			// no-op, defer doesn't work in infinite loop
+			// defer close(deploymentInformerStop)
 
 			deploymentInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 				AddFunc: func(obj interface{}) {

@@ -842,9 +842,10 @@ func (i *Internal) GetTimeLimitHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusForbidden, "user is not set")
 	}
 
-	if !strings.HasSuffix(user, i.UserSuffix) {
-		user = fmt.Sprintf("%s%s", user, i.UserSuffix)
-	}
+	// user variable is unused, uncomment if it's needed later
+	//if !strings.HasSuffix(user, i.UserSuffix) {
+	//	user = fmt.Sprintf("%s%s", user, i.UserSuffix)
+	//}
 
 	// analysisID is required
 	analysisID = c.Param("analysis-id")
@@ -860,7 +861,8 @@ func (i *Internal) GetTimeLimitHandler(c echo.Context) error {
 		return err
 	}
 
-	outputMap, err := i.getTimeLimit(userID, analysisID)
+	// err is not checked here -- should it be?
+	outputMap, err := i.getTimeLimit(userID, analysisID) // nolint
 
 	return c.JSON(http.StatusOK, outputMap)
 }
