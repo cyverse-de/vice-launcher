@@ -1,10 +1,11 @@
-package internal
+package launcher
 
 import (
 	"context"
 	"fmt"
 	"net/http"
 
+	"github.com/cyverse-de/vice-launcher/common"
 	"github.com/labstack/echo/v4"
 )
 
@@ -38,7 +39,7 @@ func (i *Internal) AsyncDataHandler(c echo.Context) error {
 	labels := deployments.Items[0].GetLabels()
 	userID := labels["user-id"]
 
-	subdomain := IngressName(userID, externalID)
+	subdomain := common.IngressName(userID, externalID)
 	ipAddr, err := i.apps.GetUserIP(ctx, userID)
 	if err != nil {
 		log.Error(err)

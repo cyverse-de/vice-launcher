@@ -1,4 +1,4 @@
-package internal
+package launcher
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/cyverse-de/app-exposer/apps"
 	"github.com/cyverse-de/app-exposer/permissions"
+	"github.com/cyverse-de/vice-launcher/common"
 	"github.com/labstack/echo/v4"
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/apps/v1"
@@ -689,7 +690,7 @@ func populateSubdomain(existingLabels map[string]string) map[string]string {
 	if _, ok := existingLabels["subdomain"]; !ok {
 		if externalID, ok := existingLabels["external-id"]; ok {
 			if userID, ok := existingLabels["user-id"]; ok {
-				existingLabels["subdomain"] = IngressName(userID, externalID)
+				existingLabels["subdomain"] = common.IngressName(userID, externalID)
 			}
 		}
 	}

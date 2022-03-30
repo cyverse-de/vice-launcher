@@ -1,21 +1,16 @@
-package internal
+package launcher
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 
 	"github.com/cyverse-de/model"
+	"github.com/cyverse-de/vice-launcher/common"
+	"github.com/cyverse-de/vice-launcher/constants"
 	apiv1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
-
-// IngressName returns the name of the ingress created for the running VICE
-// analysis. This should match the name created in the apps service.
-func IngressName(userID, invocationID string) string {
-	return fmt.Sprintf("a%x", sha256.Sum256([]byte(fmt.Sprintf("%s%s", userID, invocationID))))[0:9]
-}
 
 // getIngress assembles and returns the Ingress needed for the VICE analysis.
 // It does not call the k8s API.
@@ -25,22 +20,22 @@ func (i *Internal) getIngress(ctx context.Context, job *model.Job, svc *apiv1.Se
 		defaultPort int32
 	)
 
-	labels, err := i.labelsFromJob(ctx, job)
+	labels, err := i.LabelsFromJob(ctx, job)
 	if err != nil {
 		return nil, err
 	}
-	ingressName := IngressName(job.UserID, job.InvocationID)
+	ingressName := common.IngressName(job.UserID, job.InvocationID)
 
 	// Find the proxy port, use it as the default
 	for _, port := range svc.Spec.Ports {
-		if port.Name == viceProxyPortName {
+		if port.Name == constants.VICEProxyPortName {
 			defaultPort = port.Port
 		}
 	}
 
 	// Handle if the defaultPort isn't set yet.
 	if defaultPort == 0 {
-		return nil, fmt.Errorf("port %s was not found in the service", viceProxyPortName)
+		return nil, fmt.Errorf("port %s was not found in the service", constants.VICEProxyPortName)
 	}
 
 	// default backend, should point at the VICE default backend, which redirects

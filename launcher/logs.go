@@ -1,4 +1,4 @@
-package internal
+package launcher
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cyverse-de/vice-launcher/common"
 	"github.com/labstack/echo/v4"
 	"github.com/pkg/errors"
 	apiv1 "k8s.io/api/core/v1"
@@ -60,7 +61,7 @@ func (i *Internal) getExternalIDs(ctx context.Context, user, analysisID string) 
 		return nil, errors.Wrapf(err, "error from GET %s", analysisLookupURL.String())
 	}
 
-	resp, err := httpClient.Do(req)
+	resp, err := common.HTTPClient.Do(req)
 	if err != nil {
 		return nil, errors.Wrapf(err, "error from GET %s", analysisLookupURL.String())
 	}

@@ -1,23 +1,29 @@
-package internal
+package launcher
 
 import (
 	"context"
 	"database/sql"
 	"fmt"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/cockroachdb/apd"
 	"github.com/cyverse-de/app-exposer/apps"
-	"github.com/cyverse-de/app-exposer/common"
 	"github.com/cyverse-de/app-exposer/permissions"
-	"github.com/gosimple/slug"
+	"github.com/cyverse-de/vice-launcher/common"
+	"github.com/cyverse-de/vice-launcher/config"
+	"github.com/cyverse-de/vice-launcher/configmaps"
+	"github.com/cyverse-de/vice-launcher/constants"
+	"github.com/cyverse-de/vice-launcher/deployments"
+	"github.com/cyverse-de/vice-launcher/limits"
+	"github.com/cyverse-de/vice-launcher/logging"
+	"github.com/cyverse-de/vice-launcher/transfers"
+	"github.com/cyverse-de/vice-launcher/volumes"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 	"github.com/pkg/errors"
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 
@@ -31,98 +37,54 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-var log = common.Log
-var httpClient = http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
-var otelName = "github.com/cyverse-de/app-exposer/internal"
+var log = logging.Log.WithFields(logrus.Fields{"package": "main"})
 
-var leadingLabelReplacerRegexp = regexp.MustCompile("^[^0-9A-Za-z]+")
-var trailingLabelReplacerRegexp = regexp.MustCompile("[^0-9A-Za-z]+$")
-
-// labelReplacerFn returns a function that can be used to replace invalid leading and trailing characters
-// in label values. Hyphens are replaced by the letter "h". Underscores are replaced by the letter "u".
-// Other characters in the match are replaced by the empty string. The prefix and suffix are placed before
-// and after the replacement, respectively.
-func labelReplacerFn(prefix, suffix string) func(string) string {
-	replacementFor := map[rune]string{
-		'-': "h",
-		'_': "u",
-	}
-
-	return func(match string) string {
-		runes := []rune(match)
-		elems := make([]string, len(runes))
-		for i, c := range runes {
-			elems[i] = replacementFor[c]
-		}
-		return prefix + strings.Join(elems, "-") + suffix
-	}
-}
-
-// labelValueString returns a version of the given string that may be used as a value in a Kubernetes
-// label. See: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/. Leading and
-// trailing underscores and hyphens are replaced by sequences of `u` and `h`, separated by hyphens.
-// These sequences are separated from the main part of the label value by `-xxx-`. This is kind of
-// hokey, but it makes it at least fairly unlikely that we'll encounter collisions.
-func labelValueString(str string) string {
-	slug.MaxLength = 63
-	str = leadingLabelReplacerRegexp.ReplaceAllStringFunc(str, labelReplacerFn("", "-xxx-"))
-	str = trailingLabelReplacerRegexp.ReplaceAllStringFunc(str, labelReplacerFn("-xxx-", ""))
-	return slug.Make(str)
-}
-
-// Init contains configuration for configuring an *Internal.
-type Init struct {
-	PorklockImage                 string
-	PorklockTag                   string
-	UseCSIDriver                  bool
-	InputPathListIdentifier       string
-	TicketInputPathListIdentifier string
-	ImagePullSecretName           string
-	ViceProxyImage                string
-	CASBaseURL                    string
-	FrontendBaseURL               string
-	ViceDefaultBackendService     string
-	ViceDefaultBackendServicePort int
-	GetAnalysisIDService          string
-	CheckResourceAccessService    string
-	VICEBackendNamespace          string
-	AppsServiceBaseURL            string
-	ViceNamespace                 string
-	JobStatusURL                  string
-	UserSuffix                    string
-	PermissionsURL                string
-	KeycloakBaseURL               string
-	KeycloakRealm                 string
-	KeycloakClientID              string
-	KeycloakClientSecret          string
-	IRODSZone                     string
-}
+var otelName = "github.com/cyverse-de/vice-launcher/main"
 
 // Internal contains information and operations for launching VICE apps inside the
 // local k8s cluster.
 type Internal struct {
-	Init
+	config.Init
 	clientset       kubernetes.Interface
 	db              *sqlx.DB
-	statusPublisher AnalysisStatusPublisher
+	statusPublisher common.AnalysisStatusPublisher
 	apps            *apps.Apps
+	configMapMaker  *configmaps.ConfigMapMaker
+	limiter         *limits.Limiter
+	transferMaker   *transfers.FileTransferMaker
+	volumeMaker     *volumes.VolumeMaker
+	deploymentMaker *deployments.DeploymentMaker
 }
 
 // New creates a new *Internal.
-func New(init *Init, db *sqlx.DB, clientset kubernetes.Interface, apps *apps.Apps) *Internal {
-	return &Internal{
+func New(init *config.Init, db *sqlx.DB, clientset kubernetes.Interface, apps *apps.Apps) *Internal {
+	internal := &Internal{
 		Init:      *init,
 		db:        db,
 		clientset: clientset,
 		statusPublisher: &JSLPublisher{
 			statusURL: init.JobStatusURL,
 		},
-		apps: apps,
+		apps:    apps,
+		limiter: limits.New(init, db, clientset, apps),
 	}
+
+	internal.configMapMaker = configmaps.New(init, internal)
+	internal.transferMaker = transfers.New(init, clientset, internal.statusPublisher, otelName)
+	internal.volumeMaker = volumes.New(init, internal)
+	internal.deploymentMaker = deployments.New(
+		init,
+		internal.configMapMaker,
+		internal.volumeMaker,
+		internal.transferMaker,
+		internal,
+	)
+
+	return internal
 }
 
 // labelsFromJob returns a map[string]string that can be used as labels for K8s resources.
-func (i *Internal) labelsFromJob(ctx context.Context, job *model.Job) (map[string]string, error) {
+func (i *Internal) LabelsFromJob(ctx context.Context, job *model.Job) (map[string]string, error) {
 	name := []rune(job.Name)
 
 	var stringmax int
@@ -139,13 +101,13 @@ func (i *Internal) labelsFromJob(ctx context.Context, job *model.Job) (map[strin
 
 	return map[string]string{
 		"external-id":   job.InvocationID,
-		"app-name":      labelValueString(job.AppName),
+		"app-name":      common.LabelValueString(job.AppName),
 		"app-id":        job.AppID,
-		"username":      labelValueString(job.Submitter),
+		"username":      common.LabelValueString(job.Submitter),
 		"user-id":       job.UserID,
-		"analysis-name": labelValueString(string(name[:stringmax])),
+		"analysis-name": common.LabelValueString(string(name[:stringmax])),
 		"app-type":      "interactive",
-		"subdomain":     IngressName(job.UserID, job.InvocationID),
+		"subdomain":     common.IngressName(job.UserID, job.InvocationID),
 		"login-ip":      ipAddr,
 	}, nil
 }
@@ -155,14 +117,14 @@ func (i *Internal) labelsFromJob(ctx context.Context, job *model.Job) (map[strin
 // the k8s API to create the ConfigMap if it does not already exist or to
 // update it if it does.
 func (i *Internal) UpsertExcludesConfigMap(ctx context.Context, job *model.Job) error {
-	excludesCM, err := i.excludesConfigMap(ctx, job)
+	excludesCM, err := i.configMapMaker.ExcludesConfigMap(ctx, job)
 	if err != nil {
 		return err
 	}
 
 	cmclient := i.clientset.CoreV1().ConfigMaps(i.ViceNamespace)
 
-	_, err = cmclient.Get(ctx, excludesConfigMapName(job), metav1.GetOptions{})
+	_, err = cmclient.Get(ctx, configmaps.ExcludesConfigMapName(job), metav1.GetOptions{})
 	if err != nil {
 		log.Info(err)
 		_, err = cmclient.Create(ctx, excludesCM, metav1.CreateOptions{})
@@ -183,14 +145,14 @@ func (i *Internal) UpsertExcludesConfigMap(ctx context.Context, job *model.Job) 
 // It then uses the k8s API to create the ConfigMap if it does not already exist or to
 // update it if it does.
 func (i *Internal) UpsertInputPathListConfigMap(ctx context.Context, job *model.Job) error {
-	inputCM, err := i.inputPathListConfigMap(ctx, job)
+	inputCM, err := i.configMapMaker.InputPathListConfigMap(ctx, job)
 	if err != nil {
 		return err
 	}
 
 	cmclient := i.clientset.CoreV1().ConfigMaps(i.ViceNamespace)
 
-	_, err = cmclient.Get(ctx, inputPathListConfigMapName(job), metav1.GetOptions{})
+	_, err = cmclient.Get(ctx, configmaps.InputPathListConfigMapName(job), metav1.GetOptions{})
 	if err != nil {
 		_, err = cmclient.Create(ctx, inputCM, metav1.CreateOptions{})
 		if err != nil {
@@ -227,12 +189,12 @@ func (i *Internal) UpsertDeployment(ctx context.Context, deployment *appsv1.Depl
 	}
 
 	// Create the persistent volumes and persistent volume claims for the job.
-	volumes, err := i.getPersistentVolumes(ctx, job)
+	volumes, err := i.volumeMaker.GetPersistentVolumes(ctx, job)
 	if err != nil {
 		return err
 	}
 
-	volumeclaims, err := i.getPersistentVolumeClaims(ctx, job)
+	volumeclaims, err := i.volumeMaker.GetPersistentVolumeClaims(ctx, job)
 	if err != nil {
 		return err
 	}
@@ -319,7 +281,7 @@ func getMillicoresFromDeployment(deployment *appsv1.Deployment) (*apd.Decimal, e
 	found := false
 
 	for _, container := range containers {
-		if container.Name == analysisContainerName {
+		if container.Name == constants.AnalysisContainerName {
 			analysisContainer = &container
 			found = true
 			break
@@ -366,7 +328,7 @@ func (i *Internal) LaunchAppHandler(c echo.Context) error {
 		return err
 	}
 
-	if status, err := i.validateJob(ctx, job); err != nil {
+	if status, err := i.limiter.ValidateJob(ctx, job); err != nil {
 		if validationErr, ok := err.(common.ErrorResponse); ok {
 			return validationErr
 		}
@@ -383,7 +345,7 @@ func (i *Internal) LaunchAppHandler(c echo.Context) error {
 		return err
 	}
 
-	deployment, err := i.getDeployment(ctx, job)
+	deployment, err := i.deploymentMaker.GetDeployment(ctx, job)
 	if err != nil {
 		return err
 	}
@@ -407,7 +369,7 @@ func (i *Internal) LaunchAppHandler(c echo.Context) error {
 
 // TriggerDownloadsHandler handles requests to trigger file downloads.
 func (i *Internal) TriggerDownloadsHandler(c echo.Context) error {
-	return i.doFileTransfer(c.Request().Context(), c.Param("id"), downloadBasePath, downloadKind, true)
+	return i.transferMaker.DoFileTransfer(c.Request().Context(), c.Param("id"), constants.DownloadBasePath, constants.DownloadKind, true)
 }
 
 // AdminTriggerDownloadsHandler handles requests to trigger file downloads
@@ -425,12 +387,12 @@ func (i *Internal) AdminTriggerDownloadsHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	return i.doFileTransfer(ctx, externalID, downloadBasePath, downloadKind, true)
+	return i.transferMaker.DoFileTransfer(ctx, externalID, constants.DownloadBasePath, constants.DownloadKind, true)
 }
 
 // TriggerUploadsHandler handles requests to trigger file uploads.
 func (i *Internal) TriggerUploadsHandler(c echo.Context) error {
-	return i.doFileTransfer(c.Request().Context(), c.Param("id"), uploadBasePath, uploadKind, true)
+	return i.transferMaker.DoFileTransfer(c.Request().Context(), c.Param("id"), constants.UploadBasePath, constants.UploadKind, true)
 }
 
 // AdminTriggerUploadsHandler handles requests to trigger file uploads without
@@ -448,7 +410,7 @@ func (i *Internal) AdminTriggerUploadsHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	return i.doFileTransfer(ctx, externalID, uploadBasePath, uploadKind, true)
+	return i.transferMaker.DoFileTransfer(ctx, externalID, constants.UploadBasePath, constants.UploadKind, true)
 }
 
 func (i *Internal) doExit(ctx context.Context, externalID string) error {
@@ -769,7 +731,7 @@ func (i *Internal) SaveAndExitHandler(c echo.Context) error {
 		log.Infof("calling doFileTransfer for %s", externalID)
 
 		// Trigger a blocking output file transfer request.
-		if err = i.doFileTransfer(ctx, externalID, uploadBasePath, uploadKind, false); err != nil {
+		if err = i.transferMaker.DoFileTransfer(ctx, externalID, constants.UploadBasePath, constants.UploadKind, false); err != nil {
 			log.Error(errors.Wrap(err, "error doing file transfer")) // Log but don't exit. Possible to cancel a job that hasn't started yet
 		}
 
@@ -815,7 +777,7 @@ func (i *Internal) AdminSaveAndExitHandler(c echo.Context) error {
 		}
 
 		// Trigger a blocking output file transfer request.
-		if err = i.doFileTransfer(ctx, externalID, uploadBasePath, uploadKind, false); err != nil {
+		if err = i.transferMaker.DoFileTransfer(ctx, externalID, constants.UploadBasePath, constants.UploadKind, false); err != nil {
 			log.Error(errors.Wrap(err, "error doing file transfer")) // Log but don't exit. Possible to cancel a job that hasn't started yet
 		}
 
@@ -1015,8 +977,8 @@ func (i *Internal) updateTimeLimit(ctx context.Context, user, id string) (map[st
 		userID string
 	)
 
-	if !strings.HasSuffix(user, userSuffix) {
-		user = fmt.Sprintf("%s%s", user, userSuffix)
+	if !strings.HasSuffix(user, constants.UserSuffix) {
+		user = fmt.Sprintf("%s%s", user, constants.UserSuffix)
 	}
 
 	if err = i.db.QueryRowContext(ctx, getUserIDSQL, user).Scan(&userID); err != nil {

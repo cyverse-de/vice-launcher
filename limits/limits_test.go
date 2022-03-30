@@ -1,4 +1,4 @@
-package internal
+package limits
 
 import (
 	"context"
@@ -9,6 +9,8 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/cyverse-de/app-exposer/apps"
 	"github.com/cyverse-de/model"
+	"github.com/cyverse-de/vice-launcher/common"
+	"github.com/cyverse-de/vice-launcher/config"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/apps/v1"
@@ -18,7 +20,7 @@ import (
 )
 
 // The default configuration to use for testing.
-var testConfig = &Init{
+var testConfig = &config.Init{
 	PorklockImage:                 "discoenv/porklock",
 	PorklockTag:                   "latest",
 	UseCSIDriver:                  false,
@@ -40,7 +42,7 @@ var testConfig = &Init{
 
 // viceDeployment creates a fake VICE deployment to use for testing.
 func viceDeployment(n int, namespace, username string, externalID *string) *v1.Deployment {
-	labels := map[string]string{"username": labelValueString(username)}
+	labels := map[string]string{"username": common.LabelValueString(username)}
 	if externalID != nil {
 		labels["external-id"] = *externalID
 	}
@@ -53,8 +55,8 @@ func viceDeployment(n int, namespace, username string, externalID *string) *v1.D
 	}
 }
 
-// setupInternal sets up an instance of Internal to use for testing.
-func setupInternal(t *testing.T, objs []runtime.Object) (*Internal, sqlmock.Sqlmock) {
+// setupLimiter sets up an instance of Internal to use for testing.
+func setupLimiter(t *testing.T, objs []runtime.Object) (*Limiter, sqlmock.Sqlmock) {
 	mockdb, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal("unable to create the mock database")
@@ -65,8 +67,8 @@ func setupInternal(t *testing.T, objs []runtime.Object) (*Internal, sqlmock.Sqlm
 
 	apps := apps.NewApps(sqlxMockDB, "@iplantcollaborative.org")
 
-	internal := New(testConfig, sqlxMockDB, client, apps)
-	return internal, mock
+	limiter := New(testConfig, sqlxMockDB, client, apps)
+	return limiter, mock
 }
 
 // intPointer is just a helper function to return a pointer to an integer.
@@ -287,8 +289,8 @@ func TestLimitChecks(t *testing.T) {
 			}
 
 			// Create all of the mocks.
-			internal, mock := setupInternal(t, objs)
-			defer internal.db.Close()
+			limiter, mock := setupLimiter(t, objs)
+			defer limiter.db.Close()
 
 			// Add the database expectations.
 			for _, analysis := range test.analyses {
@@ -299,7 +301,7 @@ func TestLimitChecks(t *testing.T) {
 			registerDefaultLimitQuery(mock, test.defaultLimit)
 
 			// Run the limit check.
-			status, err := internal.validateJob(context.Background(), createTestSubmission(test.username))
+			status, err := limiter.ValidateJob(context.Background(), createTestSubmission(test.username))
 			expectedError := expectedLimitError(test.username, test.defaultLimit, len(test.analyses), test.limit)
 			if expectedError == nil {
 				assert.Equalf(http.StatusOK, status, "the status code should be %d", http.StatusOK)
@@ -316,12 +318,12 @@ func TestLimitChecks(t *testing.T) {
 func TestLabelValueReplacement(t *testing.T) {
 	assert := assert.New(t)
 
-	assert.Equal("foo-xxx-u", labelValueString("foo_"))
-	assert.Equal("foo-xxx-u-u", labelValueString("foo__"))
-	assert.Equal("foo-xxx-u-h-u", labelValueString("foo_-_"))
-	assert.Equal("h-xxx-foo", labelValueString("-foo"))
-	assert.Equal("h-u-h-xxx-foo", labelValueString("-_-foo"))
-	assert.Equal("h-u-h-xxx-foo-bar-xxx-h-u-h", labelValueString("-_-foo-bar-_-"))
-	assert.Equal("u-u-u-xxx-foo_bar-xxx-u-u-u", labelValueString("___foo_bar___"))
-	assert.Equal("u-u-u-u-xxx-foo__bar-baz__quux-xxx-u-u-u-u", labelValueString("____foo__bar--baz__quux____"))
+	assert.Equal("foo-xxx-u", common.LabelValueString("foo_"))
+	assert.Equal("foo-xxx-u-u", common.LabelValueString("foo__"))
+	assert.Equal("foo-xxx-u-h-u", common.LabelValueString("foo_-_"))
+	assert.Equal("h-xxx-foo", common.LabelValueString("-foo"))
+	assert.Equal("h-u-h-xxx-foo", common.LabelValueString("-_-foo"))
+	assert.Equal("h-u-h-xxx-foo-bar-xxx-h-u-h", common.LabelValueString("-_-foo-bar-_-"))
+	assert.Equal("u-u-u-xxx-foo_bar-xxx-u-u-u", common.LabelValueString("___foo_bar___"))
+	assert.Equal("u-u-u-u-xxx-foo__bar-baz__quux-xxx-u-u-u-u", common.LabelValueString("____foo__bar--baz__quux____"))
 }

@@ -1,4 +1,4 @@
-package internal
+package limits
 
 import (
 	"context"
@@ -7,13 +7,21 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/cyverse-de/app-exposer/common"
+	"github.com/cyverse-de/app-exposer/apps"
 	"github.com/cyverse-de/model"
+	"github.com/cyverse-de/vice-launcher/common"
+	"github.com/cyverse-de/vice-launcher/config"
+	"github.com/cyverse-de/vice-launcher/logging"
+	"github.com/jmoiron/sqlx"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	v1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/kubernetes"
 )
+
+var log = logging.Log.WithFields(logrus.Fields{"package": "limits"})
 
 func shouldCountStatus(status string) bool {
 	countIt := true
@@ -33,7 +41,25 @@ func shouldCountStatus(status string) bool {
 	return countIt
 }
 
-func (i *Internal) countJobsForUser(ctx context.Context, username string) (int, error) {
+type Limiter struct {
+	VICENamespace string
+
+	clientSet kubernetes.Interface
+	apps      *apps.Apps
+	db        *sqlx.DB
+}
+
+func New(init *config.Init, db *sqlx.DB, clientSet kubernetes.Interface, apps *apps.Apps) *Limiter {
+	return &Limiter{
+		VICENamespace: init.ViceNamespace,
+		clientSet:     clientSet,
+		apps:          apps,
+		db:            db,
+	}
+
+}
+
+func (l *Limiter) CountJobsForUser(ctx context.Context, username string) (int, error) {
 	set := labels.Set(map[string]string{
 		"username": username,
 	})
@@ -42,7 +68,7 @@ func (i *Internal) countJobsForUser(ctx context.Context, username string) (int, 
 		LabelSelector: set.AsSelector().String(),
 	}
 
-	depclient := i.clientset.AppsV1().Deployments(i.ViceNamespace)
+	depclient := l.clientSet.AppsV1().Deployments(l.VICENamespace)
 	deplist, err := depclient.List(ctx, listoptions)
 	if err != nil {
 		return 0, err
@@ -64,7 +90,7 @@ func (i *Internal) countJobsForUser(ctx context.Context, username string) (int, 
 			continue
 		}
 
-		if analysisID, err = i.apps.GetAnalysisIDByExternalID(ctx, externalID); err != nil {
+		if analysisID, err = l.apps.GetAnalysisIDByExternalID(ctx, externalID); err != nil {
 			// If we failed to get it from the database, count it because it
 			// shouldn't be running.
 			log.Error(err)
@@ -72,7 +98,7 @@ func (i *Internal) countJobsForUser(ctx context.Context, username string) (int, 
 			continue
 		}
 
-		analysisStatus, err = i.apps.GetAnalysisStatus(ctx, analysisID)
+		analysisStatus, err = l.apps.GetAnalysisStatus(ctx, analysisID)
 		if err != nil {
 			// If we failed to get the status, then something is horribly wrong.
 			// Count the analysis.
@@ -98,9 +124,9 @@ const getJobLimitForUserSQL = `
 	WHERE launcher = regexp_replace($1, '-', '_')
 `
 
-func (i *Internal) getJobLimitForUser(username string) (*int, error) {
+func (l *Limiter) getJobLimitForUser(username string) (*int, error) {
 	var jobLimit int
-	err := i.db.QueryRow(getJobLimitForUserSQL, username).Scan(&jobLimit)
+	err := l.db.QueryRow(getJobLimitForUserSQL, username).Scan(&jobLimit)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -115,9 +141,9 @@ const getDefaultJobLimitSQL = `
 	WHERE launcher IS NULL
 `
 
-func (i *Internal) getDefaultJobLimit() (int, error) {
+func (l *Limiter) getDefaultJobLimit() (int, error) {
 	var defaultJobLimit int
-	if err := i.db.QueryRow(getDefaultJobLimitSQL).Scan(&defaultJobLimit); err != nil {
+	if err := l.db.QueryRow(getDefaultJobLimitSQL).Scan(&defaultJobLimit); err != nil {
 		return 0, err
 	}
 	return defaultJobLimit, nil
@@ -168,7 +194,7 @@ func validateJobLimits(user string, defaultJobLimit, jobCount int, jobLimit *int
 	}
 }
 
-func (i *Internal) validateJob(ctx context.Context, job *model.Job) (int, error) {
+func (l *Limiter) ValidateJob(ctx context.Context, job *model.Job) (int, error) {
 
 	// Verify that the job type is supported by this service
 	if strings.ToLower(job.ExecutionTarget) != "interapps" {
@@ -176,19 +202,19 @@ func (i *Internal) validateJob(ctx context.Context, job *model.Job) (int, error)
 	}
 
 	// Get the username
-	usernameLabelValue := labelValueString(job.Submitter)
+	usernameLabelValue := common.LabelValueString(job.Submitter)
 	user := job.Submitter
 
 	// Validate the number of concurrent jobs for the user.
-	jobCount, err := i.countJobsForUser(ctx, usernameLabelValue)
+	jobCount, err := l.CountJobsForUser(ctx, usernameLabelValue)
 	if err != nil {
 		return http.StatusInternalServerError, errors.Wrapf(err, "unable to determine the number of jobs that %s is currently running", user)
 	}
-	jobLimit, err := i.getJobLimitForUser(user)
+	jobLimit, err := l.getJobLimitForUser(user)
 	if err != nil {
 		return http.StatusInternalServerError, errors.Wrapf(err, "unable to determine the concurrent job limit for %s", user)
 	}
-	defaultJobLimit, err := i.getDefaultJobLimit()
+	defaultJobLimit, err := l.getDefaultJobLimit()
 	if err != nil {
 		return http.StatusInternalServerError, errors.Wrapf(err, "unable to determine the default concurrent job limit")
 	}

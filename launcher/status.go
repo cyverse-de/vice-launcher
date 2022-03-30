@@ -1,4 +1,4 @@
-package internal
+package launcher
 
 import (
 	"bytes"
@@ -10,16 +10,9 @@ import (
 	"path"
 
 	"github.com/cyverse-de/messaging/v9"
+	"github.com/cyverse-de/vice-launcher/common"
 	"github.com/pkg/errors"
 )
-
-// AnalysisStatusPublisher is the interface for types that need to publish a job
-// update.
-type AnalysisStatusPublisher interface {
-	Fail(ctx context.Context, jobID, msg string) error
-	Success(ctx context.Context, jobID, msg string) error
-	Running(ctx context.Context, jobID, msg string) error
-}
 
 // JSLPublisher is a concrete implementation of AnalysisStatusPublisher that
 // posts status updates to the job-status-listener service.
@@ -77,7 +70,7 @@ func (j *JSLPublisher) postStatus(ctx context.Context, jobID, msg string, jobSta
 	}
 	req.Header.Set("content-type", "application/json")
 
-	response, err := httpClient.Do(req)
+	response, err := common.HTTPClient.Do(req)
 	if err != nil {
 		return errors.Wrapf(
 			err,

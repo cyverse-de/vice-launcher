@@ -1,4 +1,4 @@
-package internal
+package configmaps
 
 import (
 	"bytes"
@@ -6,13 +6,16 @@ import (
 	"fmt"
 
 	"github.com/cyverse-de/model"
+	"github.com/cyverse-de/vice-launcher/common"
+	"github.com/cyverse-de/vice-launcher/config"
+	"github.com/cyverse-de/vice-launcher/constants"
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// excludesConfigMapName returns the name of the ConfigMap containing the list
+// ExcludesConfigMapName returns the name of the ConfigMap containing the list
 // of paths that should be excluded from file uploads to iRODS by porklock.
-func excludesConfigMapName(job *model.Job) string {
+func ExcludesConfigMapName(job *model.Job) string {
 	return fmt.Sprintf("excludes-file-%s", job.InvocationID)
 }
 
@@ -28,31 +31,45 @@ func excludesFileContents(job *model.Job) *bytes.Buffer {
 	return &output
 }
 
+type ConfigMapMaker struct {
+	labeller                      common.JobLabeller
+	InputPathListIdentifier       string
+	TicketInputPathListIdentifier string
+}
+
+func New(init *config.Init, labeller common.JobLabeller) *ConfigMapMaker {
+	return &ConfigMapMaker{
+		InputPathListIdentifier:       init.InputPathListIdentifier,
+		TicketInputPathListIdentifier: init.TicketInputPathListIdentifier,
+		labeller:                      labeller,
+	}
+}
+
 // excludesConfigMap returns the ConfigMap containing the list of paths
 // that should be excluded from file uploads to iRODS by porklock. This does NOT
 // call the k8s API to actually create the ConfigMap, just returns the object
 // that can be passed to the API.
-func (i *Internal) excludesConfigMap(ctx context.Context, job *model.Job) (*apiv1.ConfigMap, error) {
-	labels, err := i.labelsFromJob(ctx, job)
+func (c *ConfigMapMaker) ExcludesConfigMap(ctx context.Context, job *model.Job) (*apiv1.ConfigMap, error) {
+	labels, err := c.labeller.LabelsFromJob(ctx, job)
 	if err != nil {
 		return nil, err
 	}
 
 	return &apiv1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   excludesConfigMapName(job),
+			Name:   ExcludesConfigMapName(job),
 			Labels: labels,
 		},
 		Data: map[string]string{
-			excludesFileName: excludesFileContents(job).String(),
+			constants.ExcludesFileName: excludesFileContents(job).String(),
 		},
 	}, nil
 }
 
-// inputPathListConfigMapName returns the name of the ConfigMap containing
+// InputPathListConfigMapName returns the name of the ConfigMap containing
 // the list of paths that should be downloaded from iRODS by porklock
 // as input files for the VICE analysis.
-func inputPathListConfigMapName(job *model.Job) string {
+func InputPathListConfigMapName(job *model.Job) string {
 	return fmt.Sprintf("input-path-list-%s", job.InvocationID)
 }
 
@@ -84,24 +101,24 @@ func inputPathListContents(job *model.Job, pathListIdentifier, ticketsPathListId
 // list of paths that should be downloaded from iRODS by porklock as input
 // files for the VICE analysis. This does NOT call the k8s API to actually
 // create the ConfigMap, just returns the object that can be passed to the API.
-func (i *Internal) inputPathListConfigMap(ctx context.Context, job *model.Job) (*apiv1.ConfigMap, error) {
-	labels, err := i.labelsFromJob(ctx, job)
+func (c *ConfigMapMaker) InputPathListConfigMap(ctx context.Context, job *model.Job) (*apiv1.ConfigMap, error) {
+	labels, err := c.labeller.LabelsFromJob(ctx, job)
 	if err != nil {
 		return nil, err
 	}
 
-	fileContents, err := inputPathListContents(job, i.InputPathListIdentifier, i.TicketInputPathListIdentifier)
+	fileContents, err := inputPathListContents(job, c.InputPathListIdentifier, c.TicketInputPathListIdentifier)
 	if err != nil {
 		return nil, err
 	}
 
 	return &apiv1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   inputPathListConfigMapName(job),
+			Name:   InputPathListConfigMapName(job),
 			Labels: labels,
 		},
 		Data: map[string]string{
-			inputPathListFileName: fileContents.String(),
+			constants.InputPathListFileName: fileContents.String(),
 		},
 	}, nil
 }

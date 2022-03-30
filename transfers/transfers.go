@@ -1,4 +1,4 @@
-package internal
+package transfers
 
 import (
 	"context"
@@ -12,6 +12,11 @@ import (
 	"time"
 
 	"github.com/cyverse-de/model"
+	"github.com/cyverse-de/vice-launcher/common"
+	"github.com/cyverse-de/vice-launcher/config"
+	"github.com/cyverse-de/vice-launcher/constants"
+	"github.com/cyverse-de/vice-launcher/logging"
+	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 
@@ -20,7 +25,10 @@ import (
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/kubernetes"
 )
+
+var log = logging.Log.WithFields(logrus.Fields{"package": "transfers"})
 
 const (
 	// RequestedStatus means the the transfer has been requested but hasn't started
@@ -45,16 +53,33 @@ type transferResponse struct {
 	Kind   string `json:"kind"`
 }
 
-// fileTransferCommand returns a []string containing the command to fire up the vice-file-transfers service.
-func fileTransferCommand(job *model.Job) []string {
+type FileTransferMaker struct {
+	UseCSIDriver    bool
+	VICENamespace   string
+	clientset       kubernetes.Interface
+	statusPublisher common.AnalysisStatusPublisher
+	OtelName        string
+}
+
+func New(init *config.Init, clientset kubernetes.Interface, statusPublisher common.AnalysisStatusPublisher, OtelName string) *FileTransferMaker {
+	return &FileTransferMaker{
+		UseCSIDriver:    init.UseCSIDriver,
+		clientset:       clientset,
+		statusPublisher: statusPublisher,
+		OtelName:        OtelName,
+	}
+}
+
+// FileTransferCommand returns a []string containing the command to fire up the vice-file-transfers service.
+func FileTransferCommand(job *model.Job) []string {
 	retval := []string{
 		"/vice-file-transfers",
 		"--listen-port", "60001",
 		"--user", job.Submitter,
-		"--excludes-file", path.Join(excludesMountPath, excludesFileName),
-		"--path-list-file", path.Join(inputPathListMountPath, inputPathListFileName),
+		"--excludes-file", path.Join(constants.ExcludesMountPath, constants.ExcludesFileName),
+		"--path-list-file", path.Join(constants.InputPathListMountPath, constants.InputPathListFileName),
 		"--upload-destination", job.OutputDirectory(),
-		"--irods-config", irodsConfigFilePath,
+		"--irods-config", constants.IRODSConfigFilePath,
 		"--invocation-id", job.InvocationID,
 	}
 	for _, fm := range job.FileMetadata {
@@ -63,32 +88,32 @@ func fileTransferCommand(job *model.Job) []string {
 	return retval
 }
 
-// fileTransferVolumeMounts returns the list of VolumeMounts needed by the fileTransfer
+// FileTransfersVolumeMounts returns the list of VolumeMounts needed by the fileTransfer
 // container in the VICE analysis pod. Each VolumeMount should correspond to one of the
 // Volumes returned by the deploymentVolumes() function. This does not call the k8s API.
-func (i *Internal) fileTransfersVolumeMounts(job *model.Job) []apiv1.VolumeMount {
+func FileTransfersVolumeMounts(job *model.Job) []apiv1.VolumeMount {
 	retval := []apiv1.VolumeMount{
 		{
-			Name:      porklockConfigVolumeName,
-			MountPath: porklockConfigMountPath,
+			Name:      constants.PorklockConfigVolumeName,
+			MountPath: constants.PorklockConfigMountPath,
 			ReadOnly:  true,
 		},
 		{
-			Name:      fileTransfersVolumeName,
-			MountPath: fileTransfersInputsMountPath,
+			Name:      constants.FileTransfersVolumeName,
+			MountPath: constants.FileTransfersInputsMountPath,
 			ReadOnly:  false,
 		},
 		{
-			Name:      excludesVolumeName,
-			MountPath: excludesMountPath,
+			Name:      constants.ExcludesVolumeName,
+			MountPath: constants.ExcludesMountPath,
 			ReadOnly:  true,
 		},
 	}
 
 	if len(job.FilterInputsWithoutTickets()) > 0 {
 		retval = append(retval, apiv1.VolumeMount{
-			Name:      inputPathListVolumeName,
-			MountPath: inputPathListMountPath,
+			Name:      constants.InputPathListVolumeName,
+			MountPath: constants.InputPathListMountPath,
 			ReadOnly:  true,
 		})
 	}
@@ -108,7 +133,7 @@ func requestTransfer(ctx context.Context, svc apiv1.Service, reqpath string) (*t
 	svcurl := url.URL{}
 
 	svcurl.Scheme = "http"
-	svcurl.Host = fmt.Sprintf("%s.%s:%d", svc.Name, svc.Namespace, fileTransfersPort)
+	svcurl.Host = fmt.Sprintf("%s.%s:%d", svc.Name, svc.Namespace, constants.FileTransfersPort)
 	svcurl.Path = reqpath
 
 	req, reqerr := http.NewRequestWithContext(ctx, http.MethodPost, svcurl.String(), nil)
@@ -116,7 +141,7 @@ func requestTransfer(ctx context.Context, svc apiv1.Service, reqpath string) (*t
 		return nil, errors.Wrapf(reqerr, "error POSTing to %s", svcurl.String())
 	}
 
-	resp, posterr := httpClient.Do(req)
+	resp, posterr := common.HTTPClient.Do(req)
 	if posterr != nil {
 		return nil, errors.Wrapf(posterr, "error POSTing to %s", svcurl.String())
 	}
@@ -154,7 +179,7 @@ func getTransferDetails(ctx context.Context, id string, svc apiv1.Service, reqpa
 	svcurl := url.URL{}
 
 	svcurl.Scheme = "http"
-	svcurl.Host = fmt.Sprintf("%s.%s:%d", svc.Name, svc.Namespace, fileTransfersPort)
+	svcurl.Host = fmt.Sprintf("%s.%s:%d", svc.Name, svc.Namespace, constants.FileTransfersPort)
 	svcurl.Path = reqpath
 
 	req, reqerr := http.NewRequestWithContext(ctx, http.MethodGet, svcurl.String(), nil)
@@ -162,7 +187,7 @@ func getTransferDetails(ctx context.Context, id string, svc apiv1.Service, reqpa
 		return nil, errors.Wrapf(reqerr, "error on GET %s", svcurl.String())
 	}
 
-	resp, posterr := httpClient.Do(req)
+	resp, posterr := common.HTTPClient.Do(req)
 	if posterr != nil {
 		return nil, errors.Wrapf(posterr, "error on GET %s", svcurl.String())
 	}
@@ -198,17 +223,17 @@ func isFinished(status string) bool {
 	}
 }
 
-// doFileTransfer handles requests to initial file transfers for a VICE
+// DoFileTransfer handles requests to initial file transfers for a VICE
 // analysis. We only need the ID of the job, nothing is required in the
 // body of the request.
-func (i *Internal) doFileTransfer(ctx context.Context, externalID, reqpath, kind string, async bool) error {
-	if i.UseCSIDriver {
+func (f *FileTransferMaker) DoFileTransfer(ctx context.Context, externalID, reqpath, kind string, async bool) error {
+	if f.UseCSIDriver {
 		// if we use CSI Driver, file transfer is not required.
 		msg := fmt.Sprintf("%s succeeded for job %s", kind, externalID)
 
 		log.Info(msg)
 
-		if successerr := i.statusPublisher.Running(ctx, externalID, msg); successerr != nil {
+		if successerr := f.statusPublisher.Running(ctx, externalID, msg); successerr != nil {
 			log.Error(successerr)
 		}
 
@@ -218,7 +243,7 @@ func (i *Internal) doFileTransfer(ctx context.Context, externalID, reqpath, kind
 	log.Infof("starting %s transfers for job %s", kind, externalID)
 
 	// Make sure that the list of services only comes from the VICE namespace.
-	svcclient := i.clientset.CoreV1().Services(i.ViceNamespace)
+	svcclient := f.clientset.CoreV1().Services(f.VICENamespace)
 
 	// Filter the list of services so only those tagged with an external-id are
 	// returned. external-id is the job ID assigned by the apps service and is
@@ -250,7 +275,7 @@ func (i *Internal) doFileTransfer(ctx context.Context, externalID, reqpath, kind
 		}
 
 		go func(ctx context.Context, svc apiv1.Service) {
-			ctx, span := otel.Tracer(otelName).Start(context.Background(), "service iteration", trace.WithLinks(trace.LinkFromContext(ctx)))
+			ctx, span := otel.Tracer(f.OtelName).Start(context.Background(), "service iteration", trace.WithLinks(trace.LinkFromContext(ctx)))
 			defer span.End()
 
 			if !async {
@@ -285,7 +310,7 @@ func (i *Internal) doFileTransfer(ctx context.Context, externalID, reqpath, kind
 
 					log.Error(err)
 
-					if failerr := i.statusPublisher.Running(ctx, externalID, msg); failerr != nil {
+					if failerr := f.statusPublisher.Running(ctx, externalID, msg); failerr != nil {
 						log.Error(failerr)
 					}
 
@@ -295,7 +320,7 @@ func (i *Internal) doFileTransfer(ctx context.Context, externalID, reqpath, kind
 
 					log.Info(msg)
 
-					if successerr := i.statusPublisher.Running(ctx, externalID, msg); successerr != nil {
+					if successerr := f.statusPublisher.Running(ctx, externalID, msg); successerr != nil {
 						log.Error(successerr)
 					}
 
@@ -303,7 +328,7 @@ func (i *Internal) doFileTransfer(ctx context.Context, externalID, reqpath, kind
 				case RequestedStatus:
 					msg := fmt.Sprintf("%s requested for job %s", kind, externalID)
 
-					if requestederr := i.statusPublisher.Running(ctx, externalID, msg); requestederr != nil {
+					if requestederr := f.statusPublisher.Running(ctx, externalID, msg); requestederr != nil {
 						log.Error(err)
 					}
 
@@ -313,7 +338,7 @@ func (i *Internal) doFileTransfer(ctx context.Context, externalID, reqpath, kind
 
 						log.Info(msg)
 
-						if uploadingerr := i.statusPublisher.Running(ctx, externalID, msg); uploadingerr != nil {
+						if uploadingerr := f.statusPublisher.Running(ctx, externalID, msg); uploadingerr != nil {
 							log.Error(err)
 						}
 
@@ -325,7 +350,7 @@ func (i *Internal) doFileTransfer(ctx context.Context, externalID, reqpath, kind
 
 						log.Info(msg)
 
-						if downloadingerr := i.statusPublisher.Running(ctx, externalID, msg); downloadingerr != nil {
+						if downloadingerr := f.statusPublisher.Running(ctx, externalID, msg); downloadingerr != nil {
 							log.Error(err)
 						}
 
