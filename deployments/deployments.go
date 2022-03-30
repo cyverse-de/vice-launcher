@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/cyverse-de/model"
+	"github.com/cyverse-de/model/v6"
 	"github.com/cyverse-de/vice-launcher/common"
 	"github.com/cyverse-de/vice-launcher/config"
 	"github.com/cyverse-de/vice-launcher/configmaps"
@@ -328,7 +328,7 @@ func (d *DeploymentMaker) workingDirPrepContainer(job *model.Job) apiv1.Containe
 		"-c",
 		strings.Join([]string{
 			fmt.Sprintf("ln -s \"%s\" .", constants.CSIDriverLocalMountPath),
-			fmt.Sprintf("ln -s \"/%s/home\" .", d.IRODSZone),
+			fmt.Sprintf("ln -s \"/%s/home\" .", d.volumeMaker.GetZoneMountPath()),
 		}, " && "),
 	}
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/cyverse-de/model"
+	"github.com/cyverse-de/model/v6"
 	"github.com/cyverse-de/vice-launcher/common"
 	"github.com/cyverse-de/vice-launcher/constants"
 	apiv1 "k8s.io/api/core/v1"

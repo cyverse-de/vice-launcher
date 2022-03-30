@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/cyverse-de/app-exposer/apps"
-	"github.com/cyverse-de/model"
+	"github.com/cyverse-de/model/v6"
 	"github.com/cyverse-de/vice-launcher/common"
 	"github.com/cyverse-de/vice-launcher/config"
 	"github.com/cyverse-de/vice-launcher/logging"

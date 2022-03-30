@@ -7,15 +7,13 @@ const (
 	PorklockConfigSecretName = "porklock-config"
 	PorklockConfigMountPath  = "/etc/porklock"
 
-	CSIDriverName                             = "irods.csi.cyverse.org"
-	CSIDriverStorageClassName                 = "irods-sc"
-	CSIDriverInputOutputVolumeNamePrefix      = "csi-io-volume"
-	CSIDriverHomeVolumeNamePrefix             = "csi-home-volume"
-	CSIDriverInputOutputVolumeClaimNamePrefix = "csi-io-volume-claim"
-	CSIDriverHomeVolumeClaimNamePrefix        = "csi-home-volume-claim"
-	CSIDriverInputVolumeMountPath             = "/input"
-	CSIDriverOutputVolumeMountPath            = "/output"
-	CSIDriverLocalMountPath                   = "/data"
+	CSIDriverName                      = "irods.csi.cyverse.org"
+	CSIDriverStorageClassName          = "irods-sc"
+	CSIDriverDataVolumeNamePrefix      = "csi-data-volume"
+	CSIDriverDataVolumeClaimNamePrefix = "csi-data-volume-claim"
+	CSIDriverInputVolumeMountPath      = "/input"
+	CSIDriverOutputVolumeMountPath     = "/output"
+	CSIDriverLocalMountPath            = "/data-store"
 
 	// The file transfers volume serves as the working directory when IRODS CSI Driver integration is disabled.
 	FileTransfersVolumeName        = "input-files"

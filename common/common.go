@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/cyverse-de/model"
+	"github.com/cyverse-de/model/v6"
 	"github.com/cyverse-de/vice-launcher/logging"
 	"github.com/gosimple/slug"
 	"github.com/sirupsen/logrus"

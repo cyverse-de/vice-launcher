@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cyverse-de/model"
+	"github.com/cyverse-de/model/v6"
 	"github.com/cyverse-de/vice-launcher/common"
 	"github.com/cyverse-de/vice-launcher/config"
 	"github.com/cyverse-de/vice-launcher/constants"
@@ -227,6 +227,9 @@ func isFinished(status string) bool {
 // analysis. We only need the ID of the job, nothing is required in the
 // body of the request.
 func (f *FileTransferMaker) DoFileTransfer(ctx context.Context, externalID, reqpath, kind string, async bool) error {
+	ctx, span := otel.Tracer(f.OtelName).Start(ctx, "doFileTransfer")
+	defer span.End()
+
 	if f.UseCSIDriver {
 		// if we use CSI Driver, file transfer is not required.
 		msg := fmt.Sprintf("%s succeeded for job %s", kind, externalID)
@@ -275,7 +278,9 @@ func (f *FileTransferMaker) DoFileTransfer(ctx context.Context, externalID, reqp
 		}
 
 		go func(ctx context.Context, svc apiv1.Service) {
-			ctx, span := otel.Tracer(f.OtelName).Start(context.Background(), "service iteration", trace.WithLinks(trace.LinkFromContext(ctx)))
+			separatedSpanContext := trace.SpanContextFromContext(ctx)
+			outerCtx := trace.ContextWithSpanContext(context.Background(), separatedSpanContext)
+			ctx, span := otel.Tracer(f.OtelName).Start(outerCtx, "service iteration")
 			defer span.End()
 
 			if !async {
